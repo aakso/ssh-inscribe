@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -23,10 +24,20 @@ var SshCmd = &cobra.Command{
 	DisableFlagParsing: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if os.Getenv("SSH_AUTH_SOCK") == "" {
+			// Ensure agentSock dir exists
+			if info, _ := os.Stat(filepath.Dir(agentSock)); info == nil {
+				if err := os.MkdirAll(filepath.Dir(agentSock), 0750); err != nil {
+					return errors.Wrap(err, "cannot create directory")
+				}
+			}
 			if err := startAdhocAgent(); err != nil {
 				return err
 			}
 			os.Setenv("SSH_AUTH_SOCK", agentSock)
+			defer func() {
+				agentListener.Close()
+				wg.Wait()
+			}()
 		}
 		ClientConfig.GenerateKeypair = true
 		c := &client.Client{Config: ClientConfig}
@@ -35,10 +46,6 @@ var SshCmd = &cobra.Command{
 		}
 		c.Close()
 		runSSH(RootCmd.Flags().Args()[2:])
-		if agentListener != nil {
-			agentListener.Close()
-			wg.Wait()
-		}
 		return nil
 	},
 }
@@ -66,6 +73,7 @@ func startAdhocAgent() error {
 			if err != nil {
 				if operr, _ := err.(*net.OpError); operr != nil {
 					if operr.Err.Error() == "use of closed network connection" {
+						Log.Debug("Shutting down")
 						return
 					}
 				}
