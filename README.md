@@ -1,5 +1,6 @@
 # ssh-inscribe - SSH CA Client/Server
-Note: this software is in alpha phase. Feedback would be appreciated.
+Note: this software is in alpha phase. Commands and API can change.
+Feedback would be appreciated.
 
 ## Overview
 ssh-inscribe can help you to manage your secure access to your
