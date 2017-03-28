@@ -40,10 +40,11 @@ func init() {
 func rootInit() {
 	if cfgFile != "" { // enable ability to specify config file via flag
 		err := config.LoadConfig(cfgFile)
-		if errors.Cause(err) == os.ErrNotExist && cfgFile == defaultCfgLoc {
+		if os.IsNotExist(errors.Cause(err)) && cfgFile == defaultCfgLoc {
 			return
 		}
 		if err != nil {
+			fmt.Println("foo")
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
