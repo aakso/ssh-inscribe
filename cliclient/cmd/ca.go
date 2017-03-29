@@ -2,12 +2,15 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/aakso/ssh-inscribe/pkg/client"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 )
+
+var principals []string
 
 var CaCmd = &cobra.Command{
 	Use:   "ca",
@@ -26,7 +29,14 @@ var ShowCaCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Printf("%s", ssh.MarshalAuthorizedKey(caKey))
+		if principals != nil {
+			fmt.Printf(`cert-authority,principals="%s" %s`,
+				strings.Join(principals, ","),
+				ssh.MarshalAuthorizedKey(caKey),
+			)
+		} else {
+			fmt.Printf("%s", ssh.MarshalAuthorizedKey(caKey))
+		}
 		return nil
 	},
 }
@@ -50,5 +60,12 @@ var AddCaCmd = &cobra.Command{
 func init() {
 	RootCmd.AddCommand(CaCmd)
 	CaCmd.AddCommand(ShowCaCmd)
+	ShowCaCmd.Flags().StringArrayVarP(
+		&principals,
+		"principals",
+		"p",
+		nil,
+		"Format ca public key with allowed principals for use with authorized_keys",
+	)
 	CaCmd.AddCommand(AddCaCmd)
 }
