@@ -13,16 +13,17 @@ type AuthBackend struct {
 }
 
 type Config struct {
-	Listen              string
-	TLSCertFile         string        `yaml:"TLSCertFile"`
-	TLSKeyFile          string        `yaml:"TLSKeyFile"`
-	AuthBackends        []AuthBackend `yaml:"authBackends"`
-	MaxCertLifetime     string        `yaml:"maxCertLifetime"`
-	DefaultCertLifetime string        `yaml:"defaultCertLifetime"`
-	AgentSocket         string        `yaml:"agentSocket"`
-	PKCS11Provider      string        `yaml:"pkcs11Provider"`
-	PKCS11Pin           string        `yaml:"pkcs11Pin"`
-	TokenSigningKey     string        `yaml:"tokenSigningKey"`
+	Listen                    string
+	TLSCertFile               string        `yaml:"TLSCertFile"`
+	TLSKeyFile                string        `yaml:"TLSKeyFile"`
+	AuthBackends              []AuthBackend `yaml:"authBackends"`
+	MaxCertLifetime           string        `yaml:"maxCertLifetime"`
+	DefaultCertLifetime       string        `yaml:"defaultCertLifetime"`
+	AgentSocket               string        `yaml:"agentSocket"`
+	PKCS11Provider            string        `yaml:"pkcs11Provider"`
+	PKCS11Pin                 string        `yaml:"pkcs11Pin"`
+	CertSigningKeyFingerprint string        `yaml:"certSigningKeyFingerprint"`
+	TokenSigningKey           string        `yaml:"tokenSigningKey"`
 }
 
 var Defaults *Config = &Config{
@@ -35,10 +36,11 @@ var Defaults *Config = &Config{
 			Config: "authfile",
 		},
 	},
-	MaxCertLifetime:     "24h",
-	DefaultCertLifetime: "1h",
-	TokenSigningKey:     util.RandB64(256),
-	AgentSocket:         path.Join(os.TempDir(), "ssh_inscribe_agent.sock"),
-	PKCS11Provider:      "",
-	PKCS11Pin:           "",
+	MaxCertLifetime:           "24h",
+	DefaultCertLifetime:       "1h",
+	AgentSocket:               path.Join(os.TempDir(), "ssh_inscribe_agent.sock"),
+	PKCS11Provider:            "",
+	PKCS11Pin:                 "",
+	CertSigningKeyFingerprint: "",
+	TokenSigningKey:           util.RandB64(256),
 }

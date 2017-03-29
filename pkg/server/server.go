@@ -77,7 +77,7 @@ func Build() (*Server, error) {
 		auths[instance.Name()] = instance
 	}
 
-	signer := keysigner.New(conf.AgentSocket)
+	signer := keysigner.New(conf.AgentSocket, conf.CertSigningKeyFingerprint)
 	for i := 0; i < 3; i++ {
 		if signer.AgentPing() {
 			break

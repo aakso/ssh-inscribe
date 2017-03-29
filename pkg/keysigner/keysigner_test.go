@@ -16,8 +16,9 @@ import (
 )
 
 var (
-	testCaPublic     = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDJrN8GEW7E0zsAUQN5xeaDSxo1KEUuIw4yMgLqeBKtyU80UCkJBhXF9K2boukTCUSkZinJOmCQBmDQxaMOT/k52NSMCQzGqzjBeiMxdflR75cgoAFgDL8fzkWfFWP6P/psVC/AeIwiPHHk4Kv4DYuDKgreB+8kMK8nHezoo6q4nxSaRO1zWa4kq17ce7ioMIrbZw0ALIB0rfM9+nahAGFbGrZxcUjtqAM7VGZWrVup9ALpDhnflmkyYTAKBVSGVnvQehqFXuK1xpaQ3avZHl085O2/wi4M8jeDpPpawXyoGr/UzCj+OWBsbIYh04MUqbrLWDWzJsE653VGGebo7jZd test-ca`)
-	testCaPrivatePem = []byte(`-----BEGIN RSA PRIVATE KEY-----
+	testCaPublic       = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDJrN8GEW7E0zsAUQN5xeaDSxo1KEUuIw4yMgLqeBKtyU80UCkJBhXF9K2boukTCUSkZinJOmCQBmDQxaMOT/k52NSMCQzGqzjBeiMxdflR75cgoAFgDL8fzkWfFWP6P/psVC/AeIwiPHHk4Kv4DYuDKgreB+8kMK8nHezoo6q4nxSaRO1zWa4kq17ce7ioMIrbZw0ALIB0rfM9+nahAGFbGrZxcUjtqAM7VGZWrVup9ALpDhnflmkyYTAKBVSGVnvQehqFXuK1xpaQ3avZHl085O2/wi4M8jeDpPpawXyoGr/UzCj+OWBsbIYh04MUqbrLWDWzJsE653VGGebo7jZd test-ca`)
+	testCaPublicParsed ssh.PublicKey
+	testCaPrivatePem   = []byte(`-----BEGIN RSA PRIVATE KEY-----
 MIIEowIBAAKCAQEAyazfBhFuxNM7AFEDecXmg0saNShFLiMOMjIC6ngSrclPNFAp
 CQYVxfStm6LpEwlEpGYpyTpgkAZg0MWjDk/5OdjUjAkMxqs4wXojMXX5Ue+XIKAB
 YAy/H85FnxVj+j/6bFQvwHiMIjxx5OCr+A2LgyoK3gfvJDCvJx3s6KOquJ8UmkTt
@@ -44,11 +45,40 @@ jIKdUp1YKfQY+nTXVV8FSokRxLzuT3J9xZeC9wOiEFroTIb/XN/JZfr1RoGjOMTA
 D5sRPJP9cTEWfmrxeZAETGhWxQkQQU956NJdXnLVOCopi2J1rD/Y2waUvGoihSuX
 BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 -----END RSA PRIVATE KEY-----`)
-	testUserPublic  = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC32gyZOLC0RHDntCk+0T5pDNYYytfmP/Jzx+tpqNGEuCWnOV9PwBLdRPT2SNIzCq1GBQWYg63GZ4qWbuvSBvo904Y69q0RWugbcNjpclzkJGT0Bl50l/ppeuJ8wLVFnguCH92E2ja/8tiIPtetKGmFDdSTETIRshGUE6PnuPy2/1BL1ES55XfOGLcvzf/yDi+JeuwQqWi8YMxAIm8ug0yn4GPBPK/MNpnMG3AQmwmviQT6nC6Ky/B9VJk2418v++lAgKRXwyqUeaHd2jAj+5lQ72zc3mZjwFnwTZJWySaGtqxQea9l1wYOhZOEyV4+KOgfLoZ3ps+vmMLGSxmnGmAj user`)
-	testUserCertReq *ssh.Certificate
-	testCaPrivate   interface{}
-	socketPath      string = path.Join(os.TempDir(), "keysignertest")
-	certValidBefore uint64 = uint64(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
+	testCaPublicInvalid     = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC4zuD51v17rZ+ZnNPNjSdfrHHg8rnhYts1wJqvMB/LKj817neJ5ONyulat19XmHUSJYC6X+Jw7imK54VmB4eLfJlpXIJjHX+uk18QxXOsDXvI6kK5aMM1huzc1BQequFD5WiN1KW20HHtzhW1XJayb5PUvp1+B6Bc/NeH/Anx3MjRQx/zMqCRczdLGB/hm/R5GTmGnR16sCb7IRfSg3silDe07a3KQE+PxbR9I8DezwQ5wM2tTZgq3fPjWzVcN+aTj4RjpU5BEEVGsMlZqlpsC9pYP89zi6xxq9zTeRO3aVt0uPvTQIPdS3fe97Y5rPx96RxeSLD4tPauz3CpOxze7 invalid`)
+	testCaPrivatePemInvalid = []byte(`-----BEGIN RSA PRIVATE KEY-----
+MIIEpQIBAAKCAQEAuM7g+db9e62fmZzTzY0nX6xx4PK54WLbNcCarzAfyyo/Ne53
+ieTjcrpWrdfV5h1EiWAul/icO4piueFZgeHi3yZaVyCYx1/rpNfEMVzrA17yOpCu
+WjDNYbs3NQUHqrhQ+VojdSlttBx7c4VtVyWsm+T1L6dfgegXPzXh/wJ8dzI0UMf8
+zKgkXM3Sxgf4Zv0eRk5hp0derAm+yEX0oN7IpQ3tO2tykBPj8W0fSPA3s8EOcDNr
+U2YKt3z41s1XDfmk4+EY6VOQRBFRrDJWapabAvaWD/Pc4uscavc03kTt2lbdLj70
+0CD3Ut33ve2Oaz8fekcXkiw+LT2rs9wqTsc3uwIDAQABAoIBAQCxa4MWt+xQgQXY
+znOUQbAMLJyDTeNf2q0CdK7MAxJy1FMs7ov6aTBmoze126DxMyXqENmKclVi398Z
+/psUkwxgGQzf2l5yAcdTUQV8Mm04pj08Nkv8MB/sdHRyxSpwHlU2ne+ueiBkqndm
+FzE6WePVIkC1CCUrrOoseAlH7VYagwg3JfU9R868+on8m42Lg7f/MSmN9coX6wWq
+Yno9B25PP1i05YrHQ3fYWuxdoV+VmgBzHgoWTNxXc51bzTK04qUuBYXuE87+U8Ug
+IvWmfva0al/zcolaMV3p0VIecmKSsXrRUXwhxd0+VDjU9vGJp0BwAznp2iQ3j9Cn
+2Ecg+crxAoGBAOuhFsg3a5t4e5dD3PfVPIaX8Ww5S//OyNmtpL7HSquQYnus9zhi
+7OquPfR/nd8MIFBUCeeW4vMD3GFEJ79olH+fEzSvnL0ptmpXzEz5iLPahHJuI8rk
+YCZo0CM64vGZ81SqITy0XjzcisNIoI2v0LX+8BCzapmRiKcH8Tn1VQTZAoGBAMjJ
+BjCghv+svVQwhSrZOHu1RoQVRXnyn2VOzuBqBjDNxGwl4SGkWSiRULdJJEQDe+MB
+gU+8LLEkEfrFD826msbgdqfPBZKp+nlba8uQkbNOm3gXCNC5DlwtMjB4Bu6327V1
+Fq2gQ0q127baGnxrNOLf/AC50bPVyB3Wuv/vpvSzAoGBALRj3ion65TZ11yF0txV
+foHYPzbIYruTlsa3nmGD91GDNzJRx+5+JbzA6qONM9K32OFGhVKsfFDpysUYRYnP
+Saiuoyh5rXhQP9wIHVtsylBO4Yktcu94iXe+VGI0SdwHLXfKy6lKuL7FZOJ+bpQq
+XpGGfEl84gZxmXmupenmPVF5AoGANoV/zMyKW/sIHkheoNgDYnRDBbLQ/uBHMDdK
+Ld4ceDwnzkYq7/u0yjNLe7m8w0s+5NGPz5sFd8SXrUS9mdvGE6L4FXE9zimh/jo4
+9zn2ln4N8Xovxp25rIYJTugI2eHLI2b8FYGjRDJFy01GS+rAnaq8v2W17+NpR9D7
+TmxBJckCgYEAus5MAa+iHtX1o1QIfXtjTPqTog9H6uVKc1kFrTS6PRQbQBiFO/MI
+lg08jQ8z4TIRwkCmcmw6C/WnW2UShkGIU75umZadDtSsof06MtBEOgIXmgx7xKTb
+mU5fO7aSgagjS0fJXWqa2w8oYFTG1dGDg+H0tHvYyH7dTPtEfhM8FV8=
+-----END RSA PRIVATE KEY-----`)
+	testUserPublic       = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC32gyZOLC0RHDntCk+0T5pDNYYytfmP/Jzx+tpqNGEuCWnOV9PwBLdRPT2SNIzCq1GBQWYg63GZ4qWbuvSBvo904Y69q0RWugbcNjpclzkJGT0Bl50l/ppeuJ8wLVFnguCH92E2ja/8tiIPtetKGmFDdSTETIRshGUE6PnuPy2/1BL1ES55XfOGLcvzf/yDi+JeuwQqWi8YMxAIm8ug0yn4GPBPK/MNpnMG3AQmwmviQT6nC6Ky/B9VJk2418v++lAgKRXwyqUeaHd2jAj+5lQ72zc3mZjwFnwTZJWySaGtqxQea9l1wYOhZOEyV4+KOgfLoZ3ps+vmMLGSxmnGmAj user`)
+	testUserCertReq      *ssh.Certificate
+	testCaPrivate        interface{}
+	testCaPrivateInvalid interface{}
+	socketPath           string = path.Join(os.TempDir(), "keysignertest")
+	certValidBefore      uint64 = uint64(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
 
 	smartCardId  = os.Getenv("TEST_SMARTCARD_ID")
 	smartCardPin = os.Getenv("TEST_SMARTCARD_PIN")
@@ -68,9 +98,9 @@ func wait(fn func() bool) bool {
 	}
 }
 
-func addKey(srv *KeySignerService) {
+func addKey(srv *KeySignerService, key interface{}) {
 	err := srv.client.Add(agent.AddedKey{
-		PrivateKey: testCaPrivate,
+		PrivateKey: key,
 		Comment:    "test ca",
 	})
 	if err != nil {
@@ -103,13 +133,9 @@ func testCert() *ssh.Certificate {
 }
 
 func checkCert(cert *ssh.Certificate) error {
-	caPublic, _, _, _, err := ssh.ParseAuthorizedKey(testCaPublic)
-	if err != nil {
-		panic(err)
-	}
 	cc := &ssh.CertChecker{
 		IsAuthority: func(auth ssh.PublicKey) bool {
-			if bytes.Equal(auth.Marshal(), caPublic.Marshal()) {
+			if bytes.Equal(auth.Marshal(), testCaPublicParsed.Marshal()) {
 				return true
 			}
 			return false
@@ -124,6 +150,14 @@ func setup() {
 	if err != nil {
 		panic(err)
 	}
+	testCaPrivateInvalid, err = ssh.ParseRawPrivateKey(testCaPrivatePemInvalid)
+	if err != nil {
+		panic(err)
+	}
+	testCaPublicParsed, _, _, _, err = ssh.ParseAuthorizedKey(testCaPublic)
+	if err != nil {
+		panic(err)
+	}
 }
 
 func TestMain(m *testing.M) {
@@ -134,7 +168,7 @@ func TestMain(m *testing.M) {
 
 func TestService(t *testing.T) {
 	assert := assert.New(t)
-	srv := New(socketPath)
+	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 	assert.True(wait(srv.AgentPing), "agent should respond")
@@ -142,19 +176,19 @@ func TestService(t *testing.T) {
 
 func TestExistingAgent(t *testing.T) {
 	assert := assert.New(t)
-	srv1 := New(socketPath)
+	srv1 := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv1.KillAgent()
 	wait(srv1.AgentPing)
 	srv1.Close()
 	// Start new service with agent already listening
-	srv2 := New(socketPath)
+	srv2 := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv2.Close()
 	assert.True(wait(srv2.AgentPing), "agent should respond")
 }
 
 func TestAddSigningKey(t *testing.T) {
 	assert := assert.New(t)
-	srv := New(socketPath)
+	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
@@ -163,20 +197,41 @@ func TestAddSigningKey(t *testing.T) {
 	assert.Error(srv.AddSigningKey(testCaPrivatePem, "test-ca"))
 }
 
-func TestDiscoverAddedKey(t *testing.T) {
+func TestAddInvalidSigningKey(t *testing.T) {
 	assert := assert.New(t)
-	srv := New(socketPath)
+	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
 	assert.True(wait(srv.AgentPing))
-	addKey(srv)
+	assert.Error(srv.AddSigningKey(testCaPrivatePemInvalid, "test-ca"))
+}
+
+func TestExternallyDiscoverAddedKey(t *testing.T) {
+	assert := assert.New(t)
+	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	defer srv.KillAgent()
+	defer srv.Close()
+
+	assert.True(wait(srv.AgentPing))
+	addKey(srv, testCaPrivate)
 	assert.True(wait(srv.Ready))
+}
+
+func TestExternallyDiscoverInvalidAddedKey(t *testing.T) {
+	assert := assert.New(t)
+	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	defer srv.KillAgent()
+	defer srv.Close()
+
+	assert.True(wait(srv.AgentPing))
+	addKey(srv, testCaPrivateInvalid)
+	assert.False(wait(srv.Ready))
 }
 
 func TestSign(t *testing.T) {
 	assert := assert.New(t)
-	srv := New(socketPath)
+	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
@@ -193,14 +248,14 @@ func TestSign(t *testing.T) {
 
 func TestGetPublicKey(t *testing.T) {
 	assert := assert.New(t)
-	srv := New(socketPath)
+	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
 	key, err := srv.GetPublicKey()
 	assert.Error(err)
 	assert.True(wait(srv.AgentPing))
-	addKey(srv)
+	addKey(srv, testCaPrivate)
 	assert.True(wait(srv.Ready))
 	key, err = srv.GetPublicKey()
 	assert.NotNil(key)
@@ -211,7 +266,7 @@ func TestSmartCard(t *testing.T) {
 		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PING set")
 	}
 	assert := assert.New(t)
-	srv := New(socketPath)
+	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 

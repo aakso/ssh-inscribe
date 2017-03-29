@@ -52,22 +52,24 @@ type removeSmartcardKeysFromAgentReq struct {
 }
 
 type KeySignerService struct {
-	authSocketLoc       string
-	startedAgentProcess *os.Process
-	client              agent.Agent
-	conn                net.Conn
-	chClose             chan struct{}
-	wg                  sync.WaitGroup
-	log                 *logrus.Entry
-	selectedSigningKey  *agent.Key
+	authSocketLoc           string
+	startedAgentProcess     *os.Process
+	client                  agent.Agent
+	conn                    net.Conn
+	chClose                 chan struct{}
+	wg                      sync.WaitGroup
+	log                     *logrus.Entry
+	preferredSigningKeyHash string
+	selectedSigningKey      *agent.Key
 	sync.Mutex
 }
 
-func New(socketPath string) *KeySignerService {
+func New(socketPath, preferredKeyHash string) *KeySignerService {
 	r := &KeySignerService{
-		authSocketLoc: socketPath,
-		log:           Log.WithField("component", "service"),
-		chClose:       make(chan struct{}),
+		authSocketLoc:           socketPath,
+		log:                     Log.WithField("component", "service"),
+		chClose:                 make(chan struct{}),
+		preferredSigningKeyHash: preferredKeyHash,
 	}
 	r.wg.Add(1)
 	go r.worker()
@@ -80,19 +82,27 @@ func (ks *KeySignerService) discoverSigningKey() bool {
 	}
 	keys, err := ks.client.List()
 	if err != nil {
+		ks.log.WithError(err).Error("cannot discover keys")
 		return false
 	}
-	if len(keys) == 1 {
-		ks.log.WithField("pubkey", string(ssh.MarshalAuthorizedKey(keys[0]))).Info("key found")
-		ks.selectedSigningKey = keys[0]
-	} else if len(keys) > 1 {
-		ks.log.WithField("keys", len(keys)).Error("there are more than one key on the agent")
-		return false
-	} else {
-		ks.log.Warning("there are no keys on the agent")
-		return false
+	for _, key := range keys {
+		if ks.preferredSigningKeyHash != "" {
+			if ssh.FingerprintSHA256(key) == ks.preferredSigningKeyHash {
+				ks.log.WithField("fingerprint", ssh.FingerprintSHA256(key)).Info("configured key found")
+				ks.selectedSigningKey = key
+				return true
+			}
+			ks.log.WithField("fingerprint", ssh.FingerprintSHA256(key)).Debug("skipping key, fingerprint doesn't match")
+		} else {
+			// Take the first key if there is no preference
+			ks.log.WithField("fingerprint", ssh.FingerprintSHA256(key)).
+				Warning("first key selected, consider setting key fingerprint in configuration")
+			ks.selectedSigningKey = key
+			return true
+		}
 	}
-	return true
+	ks.log.Warning("there are no keys on the agent")
+	return false
 }
 
 func (ks *KeySignerService) Ready() bool {
@@ -139,6 +149,9 @@ func (ks *KeySignerService) GetPublicKey() (ssh.PublicKey, error) {
 }
 
 func (ks *KeySignerService) AddSmartcard(id, pin string) error {
+	if !ks.AgentPing() {
+		return errors.New("cannot add smartcard: agent is not responding")
+	}
 	req := ssh.Marshal(addSmartcardKeysToAgentReq{
 		Id:  id,
 		Pin: pin,
@@ -154,6 +167,9 @@ func (ks *KeySignerService) AddSmartcard(id, pin string) error {
 }
 
 func (ks *KeySignerService) RemoveSmartcard(id string) error {
+	if !ks.AgentPing() {
+		return errors.New("cannot remove smartcard: agent is not responding")
+	}
 	req := ssh.Marshal(removeSmartcardKeysFromAgentReq{
 		Id: id,
 	})
@@ -179,6 +195,16 @@ func (ks *KeySignerService) AddSigningKey(pemKey []byte, comment string) error {
 	key, err := ssh.ParseRawPrivateKey(pemKey)
 	if err != nil {
 		return errors.Wrap(err, "cannot add signing key")
+	}
+	// check that fingerprint matches if it is set
+	if ks.preferredSigningKeyHash != "" {
+		signer, err := ssh.NewSignerFromKey(key)
+		if err != nil {
+			return errors.Wrap(err, "cannot add signing key")
+		}
+		if ssh.FingerprintSHA256(signer.PublicKey()) != ks.preferredSigningKeyHash {
+			return errors.New("signing key fingerprint doesn't match the configured value")
+		}
 	}
 	err = ks.client.Add(agent.AddedKey{
 		PrivateKey: key,
