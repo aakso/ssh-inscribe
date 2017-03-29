@@ -77,10 +77,27 @@ func Build() (*Server, error) {
 		auths[instance.Name()] = instance
 	}
 
+	signer := keysigner.New(conf.AgentSocket)
+	for i := 0; i < 3; i++ {
+		if signer.AgentPing() {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Setup PKCS11 if required
+	if conf.PKCS11Provider != "" && conf.PKCS11Pin != "" {
+		// Try to readd (NitroKey issue)
+		signer.RemoveSmartcard(conf.PKCS11Provider)
+		if err := signer.AddSmartcard(conf.PKCS11Provider, conf.PKCS11Pin); err != nil {
+			return nil, errors.Wrap(err, "pkcs11 initialize error")
+		}
+	}
+
 	// Signing API
 	signapi := signapi.New(
 		auths,
-		keysigner.New(conf.AgentSocket),
+		signer,
 		[]byte(conf.TokenSigningKey),
 		defaultlife,
 		maxlife,

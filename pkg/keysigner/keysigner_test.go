@@ -49,6 +49,9 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 	testCaPrivate   interface{}
 	socketPath      string = path.Join(os.TempDir(), "keysignertest")
 	certValidBefore uint64 = uint64(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
+
+	smartCardId  = os.Getenv("TEST_SMARTCARD_ID")
+	smartCardPin = os.Getenv("TEST_SMARTCARD_PIN")
 )
 
 func wait(fn func() bool) bool {
@@ -201,4 +204,23 @@ func TestGetPublicKey(t *testing.T) {
 	assert.True(wait(srv.Ready))
 	key, err = srv.GetPublicKey()
 	assert.NotNil(key)
+}
+
+func TestSmartCard(t *testing.T) {
+	if smartCardId == "" || smartCardPin == "" {
+		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PING set")
+	}
+	assert := assert.New(t)
+	srv := New(socketPath)
+	defer srv.KillAgent()
+	defer srv.Close()
+
+	assert.True(wait(srv.AgentPing))
+	err := srv.AddSmartcard(smartCardId, smartCardPin)
+	if assert.NoError(err) {
+		assert.True(wait(srv.Ready))
+	}
+	err = srv.RemoveSmartcard(smartCardId)
+	assert.NoError(err)
+	assert.False(wait(srv.Ready))
 }

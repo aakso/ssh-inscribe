@@ -3,6 +3,8 @@ package keysigner
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/binary"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -16,6 +18,38 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
+
+// Taken from stdlib to allow us to talk to the agent directly
+// maxAgentResponseBytes is the maximum agent reply size that is accepted. This
+// is a sanity check, not a limit in the spec.
+const maxAgentResponseBytes = 16 << 20
+const agentFailure = 5
+
+type failureAgentMsg struct{}
+
+const agentSuccess = 6
+
+type successAgentMsg struct{}
+
+// Some constants needed to implement smartcard add/remove as it is not supported by stdlib
+const (
+	agentAddSmartcardKey            = 20
+	agentAddSmartcardKeyConstrained = 26
+	agentRemoveSmartcardKey         = 21
+)
+
+// From PROTOCOL.agent 2.2.4
+type addSmartcardKeysToAgentReq struct {
+	Id          string `sshtype:"20|26"`
+	Pin         string
+	Constraints []byte `ssh:"rest"`
+}
+
+// 2.4.3
+type removeSmartcardKeysFromAgentReq struct {
+	Id  string `sshtype:"21"`
+	Pin string
+}
 
 type KeySignerService struct {
 	authSocketLoc       string
@@ -104,6 +138,35 @@ func (ks *KeySignerService) GetPublicKey() (ssh.PublicKey, error) {
 	return ks.selectedSigningKey, nil
 }
 
+func (ks *KeySignerService) AddSmartcard(id, pin string) error {
+	req := ssh.Marshal(addSmartcardKeysToAgentReq{
+		Id:  id,
+		Pin: pin,
+	})
+	res, err := ks.callAgent(req)
+	if err != nil {
+		return err
+	}
+	if _, ok := res.(*successAgentMsg); ok {
+		return nil
+	}
+	return errors.New("agent: failure")
+}
+
+func (ks *KeySignerService) RemoveSmartcard(id string) error {
+	req := ssh.Marshal(removeSmartcardKeysFromAgentReq{
+		Id: id,
+	})
+	res, err := ks.callAgent(req)
+	if err != nil {
+		return err
+	}
+	if _, ok := res.(*successAgentMsg); ok {
+		return nil
+	}
+	return errors.New("agent: failure")
+}
+
 func (ks *KeySignerService) AddSigningKey(pemKey []byte, comment string) error {
 	ks.Lock()
 	defer ks.Unlock()
@@ -173,6 +236,38 @@ func (ks *KeySignerService) KillAgent() bool {
 	return true
 }
 
+// This is adapted from ssh/agent/client.go *client.Call
+func (ks *KeySignerService) callAgent(req []byte) (reply interface{}, err error) {
+	ks.Lock()
+	defer ks.Unlock()
+
+	msg := make([]byte, 4+len(req))
+	binary.BigEndian.PutUint32(msg, uint32(len(req)))
+	copy(msg[4:], req)
+	if _, err = ks.conn.Write(msg); err != nil {
+		return nil, errors.Wrap(err, "agent error")
+	}
+
+	var respSizeBuf [4]byte
+	if _, err = io.ReadFull(ks.conn, respSizeBuf[:]); err != nil {
+		return nil, errors.Wrap(err, "agent error")
+	}
+	respSize := binary.BigEndian.Uint32(respSizeBuf[:])
+	if respSize > maxAgentResponseBytes {
+		return nil, errors.Wrap(err, "agent error")
+	}
+
+	buf := make([]byte, respSize)
+	if _, err = io.ReadFull(ks.conn, buf); err != nil {
+		return nil, errors.Wrap(err, "agent error")
+	}
+	reply, err = unmarshal(buf)
+	if err != nil {
+		return nil, errors.Wrap(err, "agent error")
+	}
+	return reply, err
+}
+
 func (ks *KeySignerService) startAgent() {
 	ks.Lock()
 	defer ks.Unlock()
@@ -215,6 +310,7 @@ func (ks *KeySignerService) reconnect() bool {
 		return false
 	}
 	ks.log.Info("connected to ssh-agent")
+	ks.conn = conn
 	ks.client = agent.NewClient(conn)
 	return true
 }
@@ -251,4 +347,21 @@ func (ks *KeySignerService) Close() {
 	}
 	close(ks.chClose)
 	ks.wg.Wait()
+}
+
+// success/fail handler
+func unmarshal(packet []byte) (interface{}, error) {
+	if len(packet) < 1 {
+		return nil, errors.New("agent: empty packet")
+	}
+	var msg interface{}
+	switch packet[0] {
+	case agentFailure:
+		return new(failureAgentMsg), nil
+	case agentSuccess:
+		return new(successAgentMsg), nil
+	default:
+		return nil, errors.Errorf("agent: unknown type tag %d", packet[0])
+	}
+	return msg, nil
 }

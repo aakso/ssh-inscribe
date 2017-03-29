@@ -20,6 +20,8 @@ type Config struct {
 	MaxCertLifetime     string        `yaml:"maxCertLifetime"`
 	DefaultCertLifetime string        `yaml:"defaultCertLifetime"`
 	AgentSocket         string        `yaml:"agentSocket"`
+	PKCS11Provider      string        `yaml:"pkcs11Provider"`
+	PKCS11Pin           string        `yaml:"pkcs11Pin"`
 	TokenSigningKey     string        `yaml:"tokenSigningKey"`
 }
 
@@ -37,4 +39,6 @@ var Defaults *Config = &Config{
 	DefaultCertLifetime: "1h",
 	TokenSigningKey:     util.RandB64(256),
 	AgentSocket:         path.Join(os.TempDir(), "ssh_inscribe_agent.sock"),
+	PKCS11Provider:      "",
+	PKCS11Pin:           "",
 }
