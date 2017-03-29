@@ -268,7 +268,7 @@ func (c *Client) storeInFile() error {
 			Type:  "RSA PRIVATE KEY",
 			Bytes: x509.MarshalPKCS1PrivateKey(rsaKey),
 		}
-		fhPriv, err := os.Create(c.Config.IdentityFile)
+		fhPriv, err := os.OpenFile(c.Config.IdentityFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			return errors.Wrap(err, "could not save to file")
 		}
