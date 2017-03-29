@@ -65,6 +65,8 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		"UserName": creds.UserIdentifier,
 	}
 
+	// Set ldap package level dial timeout as it doesn't offer any other way
+	ldap.DefaultTimeout = time.Second * time.Duration(al.config.Timeout)
 	var conn *ldap.Conn
 	host := fmt.Sprintf("%s:%s", al.url.Hostname(), al.url.Port())
 	switch al.connectMode {
