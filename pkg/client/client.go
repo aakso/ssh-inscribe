@@ -41,6 +41,7 @@ const (
 type Client struct {
 	Config          *Config
 	rest            *resty.Client
+	restSRV         *resty.SRVRecord
 	agentClient     agent.Agent
 	agentConn       net.Conn
 	credentialInput func(name, realm, credentialType string) []byte
@@ -182,10 +183,10 @@ func (c *Client) addCAKey() error {
 		log.Warn("WARNING: CA Key file is unencrypted!")
 	}
 	log.Debug("sending ca key to the server")
-	res, err := c.rest.R().
+	res, err := c.newReq().
 		SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken)).
 		SetBody(content).
-		Post("ca")
+		Post(c.urlFor("ca"))
 	if err != nil {
 		return errors.Wrap(err, "could not send key")
 	}
@@ -308,7 +309,7 @@ func (c *Client) sign() error {
 	if err != nil {
 		return errors.Wrap(err, "unexpected error")
 	}
-	req := c.rest.R().
+	req := c.newReq().
 		SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken)).
 		SetBody(ssh.MarshalAuthorizedKey(signer.PublicKey()))
 
@@ -317,7 +318,7 @@ func (c *Client) sign() error {
 		req.SetQueryParam("expires", expires)
 	}
 
-	res, err := req.Post("sign")
+	res, err := req.Post(c.urlFor("sign"))
 	if err != nil {
 		return errors.Wrap(err, "could not sign")
 	}
@@ -342,9 +343,9 @@ func (c *Client) sign() error {
 func (c *Client) authenticate() error {
 	log := Log.WithField("action", "authenticate")
 	log.Debug("discovering authenticators")
-	res, err := c.rest.R().
+	res, err := c.newReq().
 		SetResult([]objects.DiscoverResult{}).
-		Get("auth")
+		Get(c.urlFor("auth"))
 	if err != nil {
 		return errors.Wrap(err, "could not discover authenticators")
 	}
@@ -365,11 +366,11 @@ func (c *Client) authenticate() error {
 		}
 		log.WithField("authenticator", au.AuthenticatorName).Debug("authenticating")
 		// Send Credentials
-		req := c.rest.R().SetBasicAuth(user, secret)
+		req := c.newReq().SetBasicAuth(user, secret)
 		if c.signerToken != nil {
 			req.SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken))
 		}
-		res, err := req.Post("auth/" + au.AuthenticatorName)
+		res, err := req.Post(c.urlFor("auth/" + au.AuthenticatorName))
 		if err != nil {
 			return errors.Wrap(err, "could not authenticate")
 		}
@@ -442,7 +443,7 @@ func (c *Client) discoverCA() error {
 		return nil
 	}
 	log.Debug("discovering ca")
-	res, err := c.rest.R().Get("ca")
+	res, err := c.newReq().Get(c.urlFor("ca"))
 	if err != nil {
 		return errors.Wrap(err, "could not discover CA")
 	}
@@ -542,31 +543,44 @@ func (c *Client) initREST() error {
 	if c.Config.URL == "" {
 		return errors.New("empty server URL")
 	}
-	endpoint := c.Config.URL
-	if !strings.HasSuffix(endpoint, "/"+CurrentApiVersion) {
-		endpoint += "/" + CurrentApiVersion
-	}
-	parsed, err := url.Parse(endpoint)
+	parsed, err := url.Parse(c.Config.URL)
 	if err != nil {
 		errors.Wrap(err, "cannot parse url")
+	}
+	if c.Config.Retries < 0 {
+		return errors.New("retries cannot be negative")
 	}
 	rest := resty.New().
 		SetRESTMode().
 		SetDisableWarn(true).
-		SetHostURL(endpoint)
+		SetHostURL(c.Config.URL).
+		SetTimeout(c.Config.Timeout).
+		SetRetryCount(int(c.Config.Retries)).
+		SetLogger(ioutil.Discard)
 
 	if parsed.Scheme == "https" {
+		rest.SetScheme("https")
 		rest.SetTLSClientConfig(&tls.Config{
 			ServerName:         parsed.Hostname(),
 			InsecureSkipVerify: c.Config.Insecure,
 		})
 	} else {
+		rest.SetScheme("http")
 		log.Warn("You should really not use unencrypted connection")
+	}
+
+	if name, _, err := net.LookupSRV(parsed.Scheme, "tcp", parsed.Hostname()); err == nil {
+		c.restSRV = &resty.SRVRecord{
+			Service: parsed.Scheme,
+			Domain:  parsed.Hostname(),
+		}
+		log.WithField("SRV", name).Debug("Discovering with SRV records")
 	}
 
 	rest.Header.Set("User-Agent", "ssh-inscribe")
 	if c.Config.Debug {
-		rest.SetDebug(true)
+		rest.SetDebug(true).
+			SetLogger(os.Stderr)
 	}
 	c.rest = rest
 	return nil
@@ -601,6 +615,22 @@ func (c *Client) printCertificate() {
 		fmt.Printf("\n%20s  %s %s", " ", k, v)
 	}
 	fmt.Println()
+}
+
+func (c *Client) newReq() *resty.Request {
+	r := c.rest.R()
+	if c.restSRV != nil {
+		r.SetSRV(c.restSRV)
+	}
+	return r
+}
+
+// Return versioned url, not ideal but lets do this statically for now
+func (c *Client) urlFor(s string) string {
+	if !strings.HasSuffix(c.rest.HostURL, fmt.Sprintf("/%s", CurrentApiVersion)) {
+		return fmt.Sprintf("%s/%s", CurrentApiVersion, s)
+	}
+	return s
 }
 
 func (c *Client) Close() {

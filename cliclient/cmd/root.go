@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"time"
 
 	"github.com/aakso/ssh-inscribe/pkg/client"
 	"github.com/aakso/ssh-inscribe/pkg/logging"
@@ -15,6 +17,8 @@ var RootCmd = &cobra.Command{
 }
 var ClientConfig = &client.Config{
 	UseAgent: true,
+	Timeout:  2 * time.Second,
+	Retries:  3,
 }
 var logLevel = "info"
 
@@ -34,6 +38,30 @@ func init() {
 		os.Getenv("SSH_INSCRIBE_URL"),
 		"URL to ssh-inscribed ($SSH_INSCRIBE_URL)",
 	)
+
+	defTimeout := ClientConfig.Timeout
+	if expire := os.Getenv("SSH_INSCRIBE_TIMEOUT"); expire != "" {
+		defTimeout, _ = time.ParseDuration(expire)
+	}
+	RootCmd.PersistentFlags().DurationVarP(
+		&ClientConfig.Timeout,
+		"timeout",
+		"t",
+		defTimeout,
+		"Client timeout ($SSH_INSCRIBE_TIMEOUT)",
+	)
+
+	retries := ClientConfig.Retries
+	if os.Getenv("SSH_INSCRIBE_RETRIES") != "" {
+		retries, _ = strconv.Atoi(os.Getenv("SSH_INSCRIBE_RETRIES"))
+	}
+	RootCmd.PersistentFlags().IntVar(
+		&ClientConfig.Retries,
+		"retries",
+		retries,
+		"Set retry on server failure ($SSH_INSCRIBE_RETRIES)",
+	)
+
 	if os.Getenv("SSH_INSCRIBE_DEBUG") != "" {
 		ClientConfig.Debug = true
 	}
@@ -43,6 +71,7 @@ func init() {
 		ClientConfig.Debug,
 		"Enable request level debugging (contains sensitive data) ($SSH_INSCRIBE_DEBUG)",
 	)
+
 	if os.Getenv("SSH_INSCRIBE_INSECURE") != "" {
 		ClientConfig.Insecure = true
 	}
@@ -73,5 +102,4 @@ func init() {
 		ClientConfig.Quiet,
 		"Set quiet mode ($SSH_INSCRIBE_QUIET)",
 	)
-
 }

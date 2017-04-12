@@ -32,4 +32,11 @@ type Config struct {
 
 	// Skip TLS validation for server connection
 	Insecure bool
+
+	// Client timeout
+	Timeout time.Duration
+
+	// How many retries on failed requests
+	// For example if the server timeouts
+	Retries int
 }
