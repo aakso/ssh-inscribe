@@ -11,6 +11,7 @@ import (
 	"github.com/aakso/ssh-inscribe/pkg/config"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"
 	"github.com/aakso/ssh-inscribe/pkg/server/signapi"
+	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 	"github.com/pkg/errors"
@@ -29,8 +30,10 @@ func (s *Server) Start() error {
 	s.web.Logger.SetOutput(ioutil.Discard)
 	certFile, keyFile := s.config.TLSCertFile, s.config.TLSKeyFile
 	if certFile != "" && keyFile != "" {
+		Log.WithField("listen", fmt.Sprintf("https://%s", s.config.Listen)).Info("server starting")
 		err = s.web.StartTLS(s.config.Listen, certFile, keyFile)
 	} else {
+		Log.WithField("listen", fmt.Sprintf("http://%s", s.config.Listen)).Warn("server starting without TLS")
 		err = s.web.Start(s.config.Listen)
 	}
 	if err != nil {
@@ -92,6 +95,12 @@ func Build() (*Server, error) {
 		if err := signer.AddSmartcard(conf.PKCS11Provider, conf.PKCS11Pin); err != nil {
 			return nil, errors.Wrap(err, "pkcs11 initialize error")
 		}
+	}
+
+	// Generate random jwt token signing key in case none is set
+	if conf.TokenSigningKey == "" {
+		Log.Info("generating random JWT token signing key as none is set")
+		conf.TokenSigningKey = util.RandB64(256)
 	}
 
 	// Signing API

@@ -3,8 +3,6 @@ package server
 import (
 	"os"
 	"path"
-
-	"github.com/aakso/ssh-inscribe/pkg/util"
 )
 
 type AuthBackend struct {
@@ -42,5 +40,5 @@ var Defaults *Config = &Config{
 	PKCS11Provider:            "",
 	PKCS11Pin:                 "",
 	CertSigningKeyFingerprint: "",
-	TokenSigningKey:           util.RandB64(256),
+	TokenSigningKey:           "",
 }
