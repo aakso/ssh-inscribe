@@ -80,12 +80,15 @@ mU5fO7aSgagjS0fJXWqa2w8oYFTG1dGDg+H0tHvYyH7dTPtEfhM8FV8=
 	socketPath           string = path.Join(os.TempDir(), "keysignertest")
 	certValidBefore      uint64 = uint64(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
 
-	smartCardId  = os.Getenv("TEST_SMARTCARD_ID")
-	smartCardPin = os.Getenv("TEST_SMARTCARD_PIN")
+	socketPathSmartCard string = path.Join(os.TempDir(), "keysignertestsmartcard")
+	smartCardId                = os.Getenv("TEST_SMARTCARD_ID")
+	smartCardPin               = os.Getenv("TEST_SMARTCARD_PIN")
+	benchSmartCard             = os.Getenv("TEST_SMARTCARD_BENCH")
+	smartCardSrv        *KeySignerService
 )
 
 func wait(fn func() bool) bool {
-	timeout := time.After(6 * time.Second)
+	timeout := time.After(15 * time.Second)
 	for {
 		select {
 		case <-timeout:
@@ -145,6 +148,7 @@ func checkCert(cert *ssh.Certificate) error {
 }
 
 func setup() {
+	fmt.Println("Setup")
 	var err error
 	testCaPrivate, err = ssh.ParseRawPrivateKey(testCaPrivatePem)
 	if err != nil {
@@ -158,12 +162,36 @@ func setup() {
 	if err != nil {
 		panic(err)
 	}
+	if benchSmartCard != "" && smartCardId != "" && smartCardPin != "" {
+		smartCardSrv = New(socketPathSmartCard, "")
+		if !wait(smartCardSrv.AgentPing) {
+			panic("agent doesn't respond")
+		}
+		err = smartCardSrv.AddSmartcard(smartCardId, smartCardPin)
+		if err != nil {
+			panic(err)
+		}
+		if !wait(smartCardSrv.Ready) {
+			panic("agent should be ready for signing, maybe no key on the smartcard?")
+		}
+	}
+}
+
+func teardown() {
+	fmt.Println("Teardown")
+	if smartCardSrv != nil {
+		smartCardSrv.RemoveSmartcard(smartCardId)
+		smartCardSrv.Close()
+		smartCardSrv.KillAgent()
+	}
 }
 
 func TestMain(m *testing.M) {
 	setup()
 	logging.SetLevel(logrus.DebugLevel)
-	os.Exit(m.Run())
+	r := m.Run()
+	teardown()
+	os.Exit(r)
 }
 
 func TestService(t *testing.T) {
@@ -261,12 +289,13 @@ func TestGetPublicKey(t *testing.T) {
 	assert.NotNil(key)
 }
 
-func TestSmartCard(t *testing.T) {
+// This test assumes there is usable key on the smartcard
+func TestAddSmartCard(t *testing.T) {
 	if smartCardId == "" || smartCardPin == "" {
 		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PING set")
 	}
 	assert := assert.New(t)
-	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	srv := New(socketPath, "")
 	defer srv.KillAgent()
 	defer srv.Close()
 
@@ -277,5 +306,52 @@ func TestSmartCard(t *testing.T) {
 	}
 	err = srv.RemoveSmartcard(smartCardId)
 	assert.NoError(err)
-	assert.False(wait(srv.Ready))
+}
+
+// This test assumes there is usable key on the smartcard
+func TestSmartCardSessionRecovery(t *testing.T) {
+	if smartCardId == "" || smartCardPin == "" {
+		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PING set")
+	}
+	assert := assert.New(t)
+	srv := New(socketPath, "")
+	defer srv.KillAgent()
+	defer srv.Close()
+	assert.True(wait(srv.AgentPing))
+
+	err := srv.AddSmartcard(smartCardId, smartCardPin)
+	if assert.NoError(err) {
+		assert.True(wait(srv.Ready))
+	}
+
+	// Simulate failure
+	srv.pkcs11SessionLost = true
+
+	userCert := testCert()
+	if assert.Error(srv.SignCertificate(userCert), "signing should fail") {
+		// Wait until recovery has kicked in
+		if assert.True(wait(srv.Ready)) {
+			assert.NoError(srv.SignCertificate(userCert), "signing should now work")
+		}
+	}
+}
+
+// This test assumes there is usable key on the smartcard
+func BenchmarkSmartCard(b *testing.B) {
+	assert := assert.New(b)
+	if smartCardSrv == nil {
+		b.Skip("No TEST_SMARTCARD_BENCH and TEST_SMARTCARD_ID and TEST_SMARTCARD_PING set")
+	}
+	pubkey, err := smartCardSrv.GetPublicKey()
+	if assert.NoError(err, "we should have public key on the smartcard") {
+		testCaPublicParsed = pubkey
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				userCert := testCert()
+				assert.NoError(smartCardSrv.SignCertificate(userCert), "signing should work")
+			}
+		})
+	}
 }

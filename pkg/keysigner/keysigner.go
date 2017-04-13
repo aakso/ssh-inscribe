@@ -52,15 +52,23 @@ type removeSmartcardKeysFromAgentReq struct {
 }
 
 type KeySignerService struct {
-	authSocketLoc           string
-	startedAgentProcess     *os.Process
-	client                  agent.Agent
-	conn                    net.Conn
-	chClose                 chan struct{}
-	wg                      sync.WaitGroup
-	log                     *logrus.Entry
+	log                 *logrus.Entry
+	authSocketLoc       string
+	startedAgentProcess *os.Process
+	client              agent.Agent
+	conn                net.Conn
+
+	chClose chan struct{}
+	wg      sync.WaitGroup
+
 	preferredSigningKeyHash string
 	selectedSigningKey      *agent.Key
+
+	// PKCS11 stuff
+	pkcs11Provider    string
+	pkcs11Pin         string
+	pkcs11SessionLost bool
+
 	sync.Mutex
 }
 
@@ -117,6 +125,10 @@ func (ks *KeySignerService) Ready() bool {
 	}
 	for _, key := range keys {
 		if bytes.Compare(key.Blob, ks.selectedSigningKey.Blob) == 0 {
+			// Check if we are using pkcs11 and it has failed
+			if ks.pkcs11Provider != "" && key.Comment == ks.pkcs11Provider && ks.pkcs11SessionLost == true {
+				return false
+			}
 			return true
 		}
 	}
@@ -128,7 +140,6 @@ func (ks *KeySignerService) AgentPing() bool {
 	defer ks.Unlock()
 	return ks.agentPing()
 }
-
 func (ks *KeySignerService) agentPing() bool {
 	if ks.client == nil {
 		return false
@@ -152,6 +163,11 @@ func (ks *KeySignerService) AddSmartcard(id, pin string) error {
 	if !ks.AgentPing() {
 		return errors.New("cannot add smartcard: agent is not responding")
 	}
+	ks.Lock()
+	defer ks.Unlock()
+	return ks.addSmartcard(id, pin)
+}
+func (ks *KeySignerService) addSmartcard(id, pin string) error {
 	req := ssh.Marshal(addSmartcardKeysToAgentReq{
 		Id:  id,
 		Pin: pin,
@@ -161,6 +177,8 @@ func (ks *KeySignerService) AddSmartcard(id, pin string) error {
 		return err
 	}
 	if _, ok := res.(*successAgentMsg); ok {
+		ks.pkcs11Provider = id
+		ks.pkcs11Pin = pin
 		return nil
 	}
 	return errors.New("agent: failure")
@@ -170,6 +188,11 @@ func (ks *KeySignerService) RemoveSmartcard(id string) error {
 	if !ks.AgentPing() {
 		return errors.New("cannot remove smartcard: agent is not responding")
 	}
+	ks.Lock()
+	defer ks.Unlock()
+	return ks.removeSmartcard(id)
+}
+func (ks *KeySignerService) removeSmartcard(id string) error {
 	req := ssh.Marshal(removeSmartcardKeysFromAgentReq{
 		Id: id,
 	})
@@ -223,6 +246,8 @@ func (ks *KeySignerService) SignCertificate(cert *ssh.Certificate) error {
 	if !ks.Ready() {
 		return errors.New("service is not ready for signing")
 	}
+	ks.Lock()
+	defer ks.Unlock()
 	signers, err := ks.client.Signers()
 	if err != nil {
 		ks.log.WithError(err).Error("cannot get signers")
@@ -236,7 +261,15 @@ func (ks *KeySignerService) SignCertificate(cert *ssh.Certificate) error {
 		if bytes.Compare(signer.PublicKey().Marshal(), ks.selectedSigningKey.Blob) != 0 {
 			continue
 		}
-		return cert.SignCert(rand.Reader, signer)
+		if err := cert.SignCert(rand.Reader, signer); err != nil {
+			// Assume PKCS#11 session is somehow broken on the agent, signal worker to reinsert
+			if ks.pkcs11Provider != "" && ks.selectedSigningKey.Comment == ks.pkcs11Provider {
+				ks.pkcs11SessionLost = true
+			}
+			return err
+		} else {
+			return nil
+		}
 	}
 	ks.log.Error("selected signing key doesn't match any on the agent")
 	return errors.New("service is not ready for signing")
@@ -264,9 +297,6 @@ func (ks *KeySignerService) KillAgent() bool {
 
 // This is adapted from ssh/agent/client.go *client.Call
 func (ks *KeySignerService) callAgent(req []byte) (reply interface{}, err error) {
-	ks.Lock()
-	defer ks.Unlock()
-
 	msg := make([]byte, 4+len(req))
 	binary.BigEndian.PutUint32(msg, uint32(len(req)))
 	copy(msg[4:], req)
@@ -295,8 +325,6 @@ func (ks *KeySignerService) callAgent(req []byte) (reply interface{}, err error)
 }
 
 func (ks *KeySignerService) startAgent() {
-	ks.Lock()
-	defer ks.Unlock()
 	ks.log.WithField("socket", ks.authSocketLoc).Info("starting ssh-agent")
 	if _, err := os.Stat(ks.authSocketLoc); err == nil {
 		ks.log.Warning("cannot start ssh-agent. Socket file exists")
@@ -328,8 +356,6 @@ func (ks *KeySignerService) startAgent() {
 }
 
 func (ks *KeySignerService) reconnect() bool {
-	ks.Lock()
-	defer ks.Unlock()
 	conn, err := net.Dial("unix", ks.authSocketLoc)
 	if err != nil {
 		ks.log.WithError(err).Error("cannot connect to ssh-agent")
@@ -344,13 +370,9 @@ func (ks *KeySignerService) reconnect() bool {
 func (ks *KeySignerService) worker() {
 	defer ks.wg.Done()
 	for {
-		if !ks.AgentPing() && !ks.reconnect() {
-			ks.startAgent()
-			ks.reconnect()
-		}
-		ks.Lock()
-		ks.discoverSigningKey()
-		ks.Unlock()
+		ks.workerAgentCheck()
+		ks.workerKeyDiscover()
+		ks.workerRecoverPKCS11Session()
 		select {
 		case <-ks.chClose:
 			ks.log.Info("worker exiting")
@@ -361,9 +383,43 @@ func (ks *KeySignerService) worker() {
 	}
 }
 
-func (ks *KeySignerService) Close() {
+func (ks *KeySignerService) workerAgentCheck() {
 	ks.Lock()
 	defer ks.Unlock()
+	if !ks.agentPing() && !ks.reconnect() {
+		ks.startAgent()
+		ks.reconnect()
+	}
+}
+
+func (ks *KeySignerService) workerKeyDiscover() {
+	ks.Lock()
+	defer ks.Unlock()
+	ks.discoverSigningKey()
+}
+
+// This is mainly for problem encountered with Nitrokey HSM
+// The PKCS#11 session can become invalid if some other application uses the
+// NitroKey HSM thru PKCS#11. Reinserting the card seems to mitigate this,
+// thus this worker. This issue is not visible with SoftHSM
+func (ks *KeySignerService) workerRecoverPKCS11Session() {
+	log := ks.log.WithField("worker", "workerRecoverPKCS11Session")
+	ks.Lock()
+	defer ks.Unlock()
+	if !ks.pkcs11SessionLost {
+		return
+	}
+	log.Warn("attempting to recover from lost PKCS#11 session on the agent")
+	ks.removeSmartcard(ks.pkcs11Provider)
+	if err := ks.addSmartcard(ks.pkcs11Provider, ks.pkcs11Pin); err != nil {
+		log.WithError(err).Error("cannot add smartcard")
+		return
+	}
+	log.Info("recovered PKCS#11 session")
+	ks.pkcs11SessionLost = false
+}
+
+func (ks *KeySignerService) Close() {
 	select {
 	case _, ok := <-ks.chClose:
 		if !ok {
