@@ -19,8 +19,8 @@ PKG_USER = sshi
 PKG_GROUP = sshi
 PKG_VARDIR = /var/lib/ssh-inscribe
 
-PKG_FILES_SERVER = $(PKG_BIN_SSHID)
-#		$(PKG_SERVICE_SSHID) \
+PKG_FILES_SERVER = $(PKG_BIN_SSHID) \
+	$(PKG_SERVICE_SSHID)
 
 PKG_FILES_CLIENT = $(PKG_BIN_SSHI)
 HUBARTIFACTS = $(shell find $(BUILDDIR) -d 1 -name "ssh-inscribe*" -o -d 1 -name "sshi*" | xargs -n 1 echo -n " -a ")
@@ -40,8 +40,6 @@ test -f /$(PKG_SSHID_CONF) || ssh-inscribe defaults > /$(PKG_SSHID_CONF)
 endef
 export POST_INSTALL_SERVER
 
-.PHONY: release
-
 build: $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH) $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH)
 
 $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH):
@@ -55,15 +53,20 @@ $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH):
 $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH):
 	GOOS=$(PKG_OS) go build -o $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH) cliclient/sshi/main.go
 
+.PHONY: linux
 linux:
 	$(MAKE) PKG_OS=linux build
+.PHONY: darwin
 darwin:
 	$(MAKE) PKG_OS=darwin build
+.PHONY: rpm
 rpm:
 	$(MAKE) PKG_OS=linux rpm-client rpm-server
+.PHONY: release
 release: linux darwin rpm
 	hub release create -d $(HUBARTIFACTS) -m $(PKG_VERSION) $(PKG_SHORT_VERSION)
 
+.PHONY: rpm-server
 rpm-server: $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH) rpm_setup_fakeroot rpm_setup_server_fpm_files rpm_create_server_scripts
 	fpm \
 		-n $(PKG_NAME_SERVER) -v "$(PKG_SHORT_VERSION)" \
@@ -78,6 +81,7 @@ rpm-server: $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH) rpm_setup_fakeroot rp
 		-p $(BUILDDIR) \
 		$(PKG_FILES_SERVER)
 
+.PHONY: rpm-client
 rpm-client: $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH) rpm_setup_fakeroot rpm_setup_client_fpm_files
 	fpm \
 		-n $(PKG_NAME_CLIENT) -v "$(PKG_SHORT_VERSION)" \
@@ -90,21 +94,27 @@ rpm-client: $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH) rpm_setup_fakeroot rpm_setup_
 		-p $(BUILDDIR) \
 		$(PKG_FILES_CLIENT)
 
+.PHONY: rpm_setup_fakeroot
 rpm_setup_fakeroot:
 	mkdir -p $(FAKEROOT_SERVER)/$(PKG_ETC)
 	mkdir -p $(FAKEROOT_SERVER)/usr/bin
 	mkdir -p $(FAKEROOT_SERVER)/usr/lib/systemd/system
 	mkdir -p $(FAKEROOT_CLIENT)/usr/bin
 
+.PHONY: rpm_create_server_scripts
 rpm_create_server_scripts:
 	@echo "$$PRE_INSTALL_SERVER" > $(BUILDDIR)/server_pre_install.sh
 	@echo "$$POST_INSTALL_SERVER" > $(BUILDDIR)/server_post_install.sh
 
+.PHONY: rpm_setup_server_fpm_files
 rpm_setup_server_fpm_files:
 	cp build/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH) $(FAKEROOT_SERVER)/$(PKG_BIN_SSHID)
+	cp etc/ssh-inscribe.service $(FAKEROOT_SERVER)/$(PKG_SERVICE_SSHID)
 
+.PHONY: rpm_setup_client_fpm_files
 rpm_setup_client_fpm_files:
 	cp build/sshi-$(PKG_OS)-$(PKG_ARCH) $(FAKEROOT_CLIENT)/$(PKG_BIN_SSHI)
 
+.PHONY: clean
 clean:
 	rm -rf $(BUILDDIR)

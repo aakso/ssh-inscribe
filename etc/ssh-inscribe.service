@@ -1,0 +1,12 @@
+[Unit]
+Description=SSH Inscribe Server
+
+[Service]
+User=sshi
+Restart=on-failure
+RestartSec=30
+ExecStart=/usr/bin/ssh-inscribe server --config /etc/ssh-inscribe/server_config.yaml
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target
