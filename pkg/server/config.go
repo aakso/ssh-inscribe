@@ -1,8 +1,9 @@
 package server
 
 import (
-	"os"
 	"path"
+
+	"github.com/aakso/ssh-inscribe/pkg/globals"
 )
 
 type AuthBackend struct {
@@ -36,7 +37,7 @@ var Defaults *Config = &Config{
 	},
 	MaxCertLifetime:           "24h",
 	DefaultCertLifetime:       "1h",
-	AgentSocket:               path.Join(os.TempDir(), "ssh_inscribe_agent.sock"),
+	AgentSocket:               path.Join(globals.VarDir(), "ssh_inscribe_agent.sock"),
 	PKCS11Provider:            "",
 	PKCS11Pin:                 "",
 	CertSigningKeyFingerprint: "",

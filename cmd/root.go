@@ -16,7 +16,7 @@ var defaultCfgLoc string = path.Join(os.Getenv("HOME"), ".ssh_inscribe/config.ya
 
 var RootCmd = &cobra.Command{
 	Use:   "ssh-inscribe",
-	Short: "SSH Inscribe - Secure CA",
+	Short: "SSH Inscribe - SSH CA Server",
 	Long:  "",
 }
 
@@ -44,7 +44,6 @@ func rootInit() {
 			return
 		}
 		if err != nil {
-			fmt.Println("foo")
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}

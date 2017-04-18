@@ -1,8 +1,9 @@
 package authfile
 
 import (
-	"os"
 	"path"
+
+	"github.com/aakso/ssh-inscribe/pkg/globals"
 )
 
 type Config struct {
@@ -14,5 +15,5 @@ type Config struct {
 var Defaults *Config = &Config{
 	Name:  DefaultName,
 	Realm: DefaultRealm,
-	Path:  path.Join(os.Getenv("HOME"), ".ssh_inscribe", "auth_users.yaml"),
+	Path:  path.Join(globals.ConfDir(), "auth_users.yaml"),
 }
