@@ -63,7 +63,7 @@ darwin:
 rpm:
 	$(MAKE) PKG_OS=linux rpm-client rpm-server
 .PHONY: release
-release: linux darwin rpm
+release: clean test linux darwin rpm
 	hub release create -d $(HUBARTIFACTS) -m $(PKG_VERSION) $(PKG_SHORT_VERSION)
 
 .PHONY: rpm-server
@@ -114,6 +114,10 @@ rpm_setup_server_fpm_files:
 .PHONY: rpm_setup_client_fpm_files
 rpm_setup_client_fpm_files:
 	cp build/sshi-$(PKG_OS)-$(PKG_ARCH) $(FAKEROOT_CLIENT)/$(PKG_BIN_SSHI)
+
+.PHONY: test
+test:
+	go test ./pkg/...
 
 .PHONY: clean
 clean:
