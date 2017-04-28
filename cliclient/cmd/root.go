@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aakso/ssh-inscribe/pkg/client"
@@ -28,6 +29,33 @@ func rootInit() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// Hacky way to match flags before this subcommand to allow global flags to be set
+// There seems to be no way of doing this in Cobra at the moment
+func ignoreFlagsAfter(cmds ...string) {
+	ignoreFlags := map[string]bool{}
+	for _, v := range cmds {
+		ignoreFlags[v] = true
+	}
+	var cmdIndex int
+	for i, arg := range os.Args {
+		if ignoreFlags[strings.ToLower(arg)] {
+			cmdIndex = i
+		}
+	}
+
+	// Inject -- after the subcommand to signal Cobra not to try to parse flags
+	var args []string
+	args = append(args, os.Args[:cmdIndex+1]...)
+	args = append(args, "--")
+	args = append(args, os.Args[cmdIndex+1:]...)
+	if err := RootCmd.ParseFlags(args); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	// Rerun rootinit to re-evaluate flag values
+	rootInit()
 }
 
 func init() {

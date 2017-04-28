@@ -574,7 +574,7 @@ func (c *Client) initREST() error {
 			Service: parsed.Scheme,
 			Domain:  parsed.Hostname(),
 		}
-		log.WithField("SRV", name).Debug("Discovering with SRV records")
+		log.WithField("SRV", name).Debug("discovering with SRV records")
 	}
 
 	rest.Header.Set("User-Agent", "ssh-inscribe")
