@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -69,6 +70,9 @@ type KeySignerService struct {
 	pkcs11Pin         string
 	pkcs11SessionLost bool
 
+	// Signing test
+	signTestFailed bool
+
 	sync.Mutex
 }
 
@@ -117,6 +121,9 @@ func (ks *KeySignerService) Ready() bool {
 	ks.Lock()
 	defer ks.Unlock()
 	if ks.selectedSigningKey == nil {
+		return false
+	}
+	if ks.signTestFailed == true {
 		return false
 	}
 	keys, err := ks.client.List()
@@ -242,37 +249,41 @@ func (ks *KeySignerService) AddSigningKey(pemKey []byte, comment string) error {
 	return nil
 }
 
+func (ks *KeySignerService) getSigner() (ssh.Signer, error) {
+	signers, err := ks.client.Signers()
+	if err != nil {
+		ks.log.WithError(err).Error("cannot get signers")
+		return nil, errors.New("service is not ready for signing")
+	}
+	if len(signers) == 0 {
+		return nil, errors.New("service is not ready for signing")
+	}
+	for _, signer := range signers {
+		if bytes.Compare(signer.PublicKey().Marshal(), ks.selectedSigningKey.Blob) == 0 {
+			return signer, nil
+		}
+	}
+	ks.log.Error("selected signing key doesn't match any on the agent")
+	return nil, errors.New("service is not ready for signing")
+}
+
 func (ks *KeySignerService) SignCertificate(cert *ssh.Certificate) error {
 	if !ks.Ready() {
 		return errors.New("service is not ready for signing")
 	}
 	ks.Lock()
 	defer ks.Unlock()
-	signers, err := ks.client.Signers()
+
+	signer, err := ks.getSigner()
 	if err != nil {
-		ks.log.WithError(err).Error("cannot get signers")
-		return errors.New("service is not ready for signing")
+		ks.log.Error("cannot get signer")
+		return err
 	}
-	if len(signers) == 0 {
-		ks.log.Error("there are no signers")
-		return errors.New("service is not ready for signing")
+	if err := cert.SignCert(rand.Reader, signer); err != nil {
+		return err
+	} else {
+		return nil
 	}
-	for _, signer := range signers {
-		if bytes.Compare(signer.PublicKey().Marshal(), ks.selectedSigningKey.Blob) != 0 {
-			continue
-		}
-		if err := cert.SignCert(rand.Reader, signer); err != nil {
-			// Assume PKCS#11 session is somehow broken on the agent, signal worker to reinsert
-			if ks.pkcs11Provider != "" && ks.selectedSigningKey.Comment == ks.pkcs11Provider {
-				ks.pkcs11SessionLost = true
-			}
-			return err
-		} else {
-			return nil
-		}
-	}
-	ks.log.Error("selected signing key doesn't match any on the agent")
-	return errors.New("service is not ready for signing")
 }
 
 // Kill agent if it was started by us
@@ -372,6 +383,7 @@ func (ks *KeySignerService) worker() {
 	for {
 		ks.workerAgentCheck()
 		ks.workerKeyDiscover()
+		ks.workerSignTest()
 		ks.workerRecoverPKCS11Session()
 		select {
 		case <-ks.chClose:
@@ -380,6 +392,33 @@ func (ks *KeySignerService) worker() {
 		case <-time.After(5 * time.Second):
 			continue
 		}
+	}
+}
+
+func (ks *KeySignerService) workerSignTest() {
+	log := ks.log.WithField("worker", "workerSignTest")
+	ks.Lock()
+	defer ks.Unlock()
+
+	if ks.selectedSigningKey == nil {
+		return
+	}
+	signer, err := ks.getSigner()
+	if err != nil {
+		log.WithError(err).Warn("signing key is not available on the agent")
+		ks.signTestFailed = true
+		return
+	}
+	data := util.RandBytes(32)
+	if _, err := signer.Sign(rand.Reader, data); err != nil {
+		// Assume PKCS#11 session is somehow broken on the agent, signal worker to reinsert
+		if ks.pkcs11Provider != "" && ks.selectedSigningKey.Comment == ks.pkcs11Provider {
+			ks.pkcs11SessionLost = true
+		}
+		log.WithError(err).Warn("test signing failed, agent is not able to sign")
+		ks.signTestFailed = true
+	} else {
+		ks.signTestFailed = false
 	}
 }
 

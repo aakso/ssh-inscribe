@@ -18,6 +18,7 @@ func (sa *SignApi) RegisterRoutes(g *echo.Group) {
 	g.POST("/sign", sa.HandleSign, jwtAuth(sa.tkey, &SignClaim{}, false))
 	g.GET("/ca", sa.HandleGetKey)
 	g.POST("/ca", sa.HandleAddKey, jwtAuth(sa.tkey, &SignClaim{}, false))
+	g.GET("/ready", sa.HandleReady)
 }
 
 func userPasswordForward() echo.MiddlewareFunc {

@@ -69,7 +69,7 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 )
 
 func TestMain(m *testing.M) {
-	signer := keysigner.New(socketPath)
+	signer := keysigner.New(socketPath, "")
 	auths := map[string]auth.Authenticator{}
 	auths[authenticator.Name()] = authenticator
 	signapi = New(auths, signer, signingKey, 1*time.Hour, 24*time.Hour)
@@ -88,6 +88,14 @@ func TestDiscovery(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	assert.Equal(http.StatusOK, rec.Code)
+}
+
+func TestNotReady(t *testing.T) {
+	assert := assert.New(t)
+	req, _ := http.NewRequest(echo.GET, "/v1/ready", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Equal(http.StatusInternalServerError, rec.Code)
 }
 
 func TestLogin(t *testing.T) {
@@ -148,6 +156,14 @@ func TestAddKey(t *testing.T) {
 	e.ServeHTTP(rec, req)
 	assert.Equal(http.StatusAccepted, rec.Code)
 	assert.Empty(rec.Body.String())
+}
+
+func TestReady(t *testing.T) {
+	assert := assert.New(t)
+	req, _ := http.NewRequest(echo.GET, "/v1/ready", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Equal(http.StatusNoContent, rec.Code)
 }
 
 func TestGetKey(t *testing.T) {

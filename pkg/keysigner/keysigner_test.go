@@ -336,11 +336,27 @@ func TestSmartCardSessionRecovery(t *testing.T) {
 	}
 }
 
+func TestSigningTest(t *testing.T) {
+	assert := assert.New(t)
+	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	defer srv.KillAgent()
+	defer srv.Close()
+
+	assert.True(wait(srv.AgentPing))
+	addKey(srv, testCaPrivate)
+	assert.True(wait(srv.Ready))
+	srv.client.RemoveAll()
+	assert.True(wait(func() bool {
+		return srv.signTestFailed == true
+	}))
+	assert.False(srv.Ready())
+}
+
 // This test assumes there is usable key on the smartcard
 func BenchmarkSmartCard(b *testing.B) {
 	assert := assert.New(b)
 	if smartCardSrv == nil {
-		b.Skip("No TEST_SMARTCARD_BENCH and TEST_SMARTCARD_ID and TEST_SMARTCARD_PING set")
+		b.Skip("No TEST_SMARTCARD_BENCH and TEST_SMARTCARD_ID and TEST_SMARTCARD_PIN set")
 	}
 	pubkey, err := smartCardSrv.GetPublicKey()
 	if assert.NoError(err, "we should have public key on the smartcard") {
