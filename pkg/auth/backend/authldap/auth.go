@@ -61,6 +61,13 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 	if newctx.AuthMeta == nil {
 		newctx.AuthMeta = make(map[string]interface{})
 	}
+
+	// Add username as principal if configured
+	if al.config.UserNamePrincipal {
+		newctx.Principals = append(newctx.Principals, creds.UserIdentifier)
+	}
+
+	// Template context is passed to all templates
 	tplCtx := map[string]interface{}{
 		"UserName": creds.UserIdentifier,
 	}

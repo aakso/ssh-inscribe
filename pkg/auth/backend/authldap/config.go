@@ -17,9 +17,10 @@ type Config struct {
 	SubjectNameTemplate      string   `yaml:"subjectNameTemplate"`
 	PrincipalTemplate        string   `yaml:"principalTemplate"`
 
-	Principals      []string
-	CriticalOptions map[string]string `yaml:"criticalOptions"`
-	Extensions      map[string]string
+	UserNamePrincipal bool `yaml:"userNamePrincipal"`
+	Principals        []string
+	CriticalOptions   map[string]string `yaml:"criticalOptions"`
+	Extensions        map[string]string
 }
 
 var Defaults *Config = &Config{
@@ -39,7 +40,8 @@ var Defaults *Config = &Config{
 	SubjectNameTemplate:      "{{.User.displayName}}",
 	PrincipalTemplate:        "{{.Group.cn}}",
 
-	Principals:      []string{},
-	CriticalOptions: map[string]string{},
-	Extensions:      map[string]string{},
+	UserNamePrincipal: true,
+	Principals:        []string{},
+	CriticalOptions:   map[string]string{},
+	Extensions:        map[string]string{},
 }

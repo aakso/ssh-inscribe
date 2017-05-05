@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/logging"
-	"github.com/Sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/vjeantet/ldapserver"
 )
@@ -71,6 +71,19 @@ func TestAuthenticate(t *testing.T) {
 	assert.Equal(TestUserCN, actx.SubjectName)
 	assert.Contains(actx.Principals, TestGroupCN1)
 	assert.Contains(actx.Principals, TestGroupCN2)
+	assert.Contains(actx.Principals, TestUser)
+}
+
+func TestAuthenticateNoUserNamePrincipal(t *testing.T) {
+	testInst.config.UserNamePrincipal = false
+	assert := assert.New(t)
+	actx, ok := testInst.Authenticate(nil, &auth.Credentials{
+		UserIdentifier: TestUser,
+		Secret:         []byte(TestPassword),
+	})
+	assert.True(ok)
+	assert.NotNil(actx)
+	assert.NotContains(actx.Principals, TestUser)
 }
 
 func TestAuthFail(t *testing.T) {
