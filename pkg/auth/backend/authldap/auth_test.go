@@ -1,3 +1,5 @@
+// +build !race
+
 package authldap
 
 import (
@@ -36,6 +38,7 @@ func initServer() {
 	}
 	testServer = newTestServer(logger)
 	time.Sleep(50 * time.Millisecond)
+	// This causes race detector to freak out. Unfortunately no way to fix it with dynamic port selection
 	testConf.ServerURL = fmt.Sprintf("ldap://%s", testServer.Listener.Addr().String())
 	testConf.UserBindDN = "{{.UserName}}"
 }

@@ -347,9 +347,8 @@ func TestSigningTest(t *testing.T) {
 	assert.True(wait(srv.Ready))
 	srv.client.RemoveAll()
 	assert.True(wait(func() bool {
-		return srv.signTestFailed == true
+		return srv.Ready() == false
 	}))
-	assert.False(srv.Ready())
 }
 
 // This test assumes there is usable key on the smartcard
