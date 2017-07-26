@@ -243,6 +243,10 @@ func (ao *AuthOIDC) processToken(actx *auth.AuthContext, token *oauth2.Token) er
 			actx.Principals = append(actx.Principals, s)
 		}
 	}
+	// From configuration
+	actx.Principals = append(actx.Principals, ao.config.Principals...)
+	actx.CriticalOptions = ao.config.CriticalOptions
+	actx.Extensions = ao.config.Extensions
 
 	actx.Status = auth.StatusCompleted
 
