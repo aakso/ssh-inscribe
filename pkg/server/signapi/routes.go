@@ -1,6 +1,9 @@
 package signapi
 
 import (
+	"fmt"
+
+	"github.com/aakso/ssh-inscribe/pkg/auth"
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
@@ -8,24 +11,30 @@ import (
 )
 
 func (sa *SignApi) RegisterRoutes(g *echo.Group) {
-	g.Use(auditID())
 	g.GET("/auth", sa.HandleAuthDiscover)
 	g.POST("/auth/:name",
 		sa.HandleLogin,
-		userPasswordForward(),
+		userPasswordForward(sa.LoginUserPasswordAuthSkipper),
 		jwtAuth(sa.tkey, &SignClaim{}, true),
+		auditID(),
 	)
-	g.POST("/sign", sa.HandleSign, jwtAuth(sa.tkey, &SignClaim{}, false))
+	g.GET("/auth_callback/:name", sa.HandleAuthCallback)
+	g.POST("/auth_callback/:name", sa.HandleAuthCallback)
+	g.POST("/sign", sa.HandleSign, jwtAuth(sa.tkey, &SignClaim{}, false), auditID())
 	g.GET("/ca", sa.HandleGetKey)
-	g.POST("/ca", sa.HandleAddKey, jwtAuth(sa.tkey, &SignClaim{}, false))
+	g.POST("/ca", sa.HandleAddKey, jwtAuth(sa.tkey, &SignClaim{}, false), auditID())
 	g.GET("/ready", sa.HandleReady)
 }
 
-func userPasswordForward() echo.MiddlewareFunc {
-	return middleware.BasicAuth(func(user string, pw string, c echo.Context) bool {
-		c.Set("username", user)
-		c.Set("password", pw)
-		return true
+func userPasswordForward(skipper middleware.Skipper) echo.MiddlewareFunc {
+	return middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
+		Validator: func(user string, pw string, c echo.Context) bool {
+			fmt.Println("in userpw")
+			c.Set("username", user)
+			c.Set("password", pw)
+			return true
+		},
+		Skipper: skipper,
 	})
 }
 
@@ -50,8 +59,26 @@ func jwtAuth(key []byte, claims jwt.Claims, skipIfMissing bool) echo.MiddlewareF
 func auditID() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			rid := random.String(32)
-			c.Response().Header().Set(echo.HeaderXRequestID, rid)
+			var (
+				actx   *auth.AuthContext
+				claims *SignClaim
+			)
+			// Lookup audit key from the jwt token if possible
+			if token, _ := c.Get("user").(*jwt.Token); token != nil {
+				claims, _ = token.Claims.(*SignClaim)
+			}
+			if claims != nil {
+				actx = claims.AuthContext
+			}
+			if actx != nil {
+				if aid := actx.GetMetaString(auth.MetaAuditID); aid != "" {
+					c.Response().Header().Set(echo.HeaderXRequestID, aid)
+				}
+			} else {
+				// Instantiate new audit id otherwise
+				rid := random.String(32)
+				c.Response().Header().Set(echo.HeaderXRequestID, rid)
+			}
 			return next(c)
 		}
 	}

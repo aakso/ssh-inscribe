@@ -50,6 +50,7 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 	}
 
 	newctx := &auth.AuthContext{
+		Status:          auth.StatusCompleted,
 		Parent:          pctx,
 		SubjectName:     creds.UserIdentifier,
 		AuthMeta:        creds.Meta,
@@ -234,7 +235,10 @@ func New(conf *Config) (*AuthLDAP, error) {
 	}
 
 	return &AuthLDAP{
-		log:         Log.WithField("realm", conf.Realm),
+		log: Log.WithFields(logrus.Fields{
+			"realm": conf.Realm,
+			"name":  conf.Name,
+		}),
 		config:      conf,
 		url:         url,
 		connectMode: connectMode,

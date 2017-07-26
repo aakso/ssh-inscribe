@@ -17,6 +17,7 @@ type AuthMock struct {
 func (am *AuthMock) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials) (*auth.AuthContext, bool) {
 	if creds.UserIdentifier == am.User && bytes.Equal(creds.Secret, am.Secret) {
 		ctx := am.AuthContext
+		ctx.Status = auth.StatusCompleted
 		ctx.Parent = pctx
 		ctx.Authenticator = am.Name()
 		ctx.SubjectName = am.User
