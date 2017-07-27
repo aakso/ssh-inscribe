@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/aakso/ssh-inscribe/pkg/client"
@@ -18,6 +20,15 @@ var ReqCmd = &cobra.Command{
 		defer c.Close()
 		if b, _ := cmd.Flags().GetBool("clear"); b == true {
 			return c.Logout()
+		} else if b, _ := cmd.Flags().GetBool("list-logins"); b == true {
+			discoverResult, err := c.GetAuthenticators()
+			if err != nil {
+				return err
+			}
+			for _, v := range discoverResult {
+				fmt.Printf("%s (%s)\n", v.AuthenticatorName, v.AuthenticatorRealm)
+			}
+			return nil
 		}
 		return c.Login()
 	},
@@ -90,5 +101,23 @@ func init() {
 		"clear",
 		false,
 		"Clear granted certificate",
+	)
+
+	ReqCmd.Flags().Bool(
+		"list-logins",
+		false,
+		"List available auth endpoints",
+	)
+
+	defLoginAuthEndpoints := []string{}
+	if logins := os.Getenv("SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS"); logins != "" {
+		defLoginAuthEndpoints = strings.Split(logins, ",")
+	}
+	ReqCmd.Flags().StringSliceVarP(
+		&ClientConfig.LoginAuthEndpoints,
+		"login",
+		"l",
+		defLoginAuthEndpoints,
+		"Login to specific auth endpoits ($SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS)",
 	)
 }

@@ -7,8 +7,9 @@ import (
 )
 
 type AuthBackend struct {
-	Type   string
-	Config string
+	Type    string
+	Config  string
+	Default bool
 }
 
 type Config struct {
@@ -16,6 +17,7 @@ type Config struct {
 	TLSCertFile               string        `yaml:"TLSCertFile"`
 	TLSKeyFile                string        `yaml:"TLSKeyFile"`
 	AuthBackends              []AuthBackend `yaml:"authBackends"`
+	DefaultAuthBackends       []string      `yaml:"defaultAuthBackends"`
 	MaxCertLifetime           string        `yaml:"maxCertLifetime"`
 	DefaultCertLifetime       string        `yaml:"defaultCertLifetime"`
 	AgentSocket               string        `yaml:"agentSocket"`
@@ -31,10 +33,12 @@ var Defaults *Config = &Config{
 	TLSKeyFile:  "",
 	AuthBackends: []AuthBackend{
 		AuthBackend{
-			Type:   "authfile",
-			Config: "authfile",
+			Type:    "authfile",
+			Config:  "authfile",
+			Default: false,
 		},
 	},
+	DefaultAuthBackends:       []string{},
 	MaxCertLifetime:           "24h",
 	DefaultCertLifetime:       "1h",
 	AgentSocket:               path.Join(globals.VarDir(), "ssh_inscribe_agent.sock"),

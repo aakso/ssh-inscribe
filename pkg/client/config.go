@@ -39,4 +39,7 @@ type Config struct {
 	// How many retries on failed requests
 	// For example if the server timeouts
 	Retries int
+
+	// Which auth endpoints to login to
+	LoginAuthEndpoints []string
 }

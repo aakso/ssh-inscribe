@@ -79,6 +79,13 @@ func (c *Client) GetCA() (ssh.PublicKey, error) {
 	return c.ca, nil
 }
 
+func (c *Client) GetAuthenticators() ([]objects.DiscoverResult, error) {
+	if err := c.initREST(); err != nil {
+		return nil, errors.Wrap(err, "could not get ca")
+	}
+	return c.discoverAuthenticators()
+}
+
 func (c *Client) Logout() error {
 	if err := c.initREST(); err != nil {
 		return errors.Wrap(err, "could not logout")
@@ -339,21 +346,64 @@ func (c *Client) sign() error {
 	return nil
 }
 
-// Do authentication discovery and login
-func (c *Client) authenticate() error {
-	log := Log.WithField("action", "authenticate")
+func (c *Client) discoverAuthenticators() ([]objects.DiscoverResult, error) {
+	log := Log.WithField("action", "discoverAuthenticators")
 	log.Debug("discovering authenticators")
 	res, err := c.newReq().
 		SetResult([]objects.DiscoverResult{}).
 		Get(c.urlFor("auth"))
 	if err != nil {
-		return errors.Wrap(err, "could not discover authenticators")
+		return nil, errors.Wrap(err, "could not discover authenticators")
 	}
-	authenticators, _ := res.Result().(*[]objects.DiscoverResult)
-	if authenticators == nil {
-		return errors.New("could not parse auth discovery result")
+	discoverResult, _ := res.Result().(*[]objects.DiscoverResult)
+	if discoverResult == nil {
+		return nil, errors.New("could not parse auth discovery result")
 	}
-	for _, au := range *authenticators {
+	return *discoverResult, nil
+}
+
+// Do authentication discovery and login
+func (c *Client) authenticate() error {
+	log := Log.WithField("action", "authenticate")
+	log.Debug("discovering authenticators")
+
+	discoverResult, err := c.discoverAuthenticators()
+	if err != nil {
+		return err
+	}
+
+	// Make the final authenticator list based on user request or the
+	// default setting in server configuration
+	var (
+		defaultAuthenticators []objects.DiscoverResult
+		finalAuthenticators   []objects.DiscoverResult
+	)
+	availableAuthenticators := map[string]objects.DiscoverResult{}
+	for _, au := range discoverResult {
+		if au.Default {
+			defaultAuthenticators = append(defaultAuthenticators, au)
+		}
+		availableAuthenticators[au.AuthenticatorName] = au
+	}
+	switch {
+	case len(c.Config.LoginAuthEndpoints) > 0:
+		for _, v := range c.Config.LoginAuthEndpoints {
+			if au, ok := availableAuthenticators[v]; !ok {
+				return errors.Errorf("unknown auth endpoint name: %s", v)
+			} else {
+				finalAuthenticators = append(finalAuthenticators, au)
+			}
+		}
+	case len(defaultAuthenticators) > 0:
+		finalAuthenticators = defaultAuthenticators
+	case len(discoverResult) > 0:
+		finalAuthenticators = append(finalAuthenticators, discoverResult[0])
+	default:
+		return errors.New("cannot continue, no authenticators returned from the server")
+	}
+	log.WithField("authenticator_list", finalAuthenticators).Debug("begin authentication")
+
+	for _, au := range finalAuthenticators {
 		var user, secret string
 		switch au.AuthenticatorCredentialType {
 		case auth.CredentialUserPassword:

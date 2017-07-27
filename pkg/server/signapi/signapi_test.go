@@ -70,8 +70,12 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 
 func TestMain(m *testing.M) {
 	signer := keysigner.New(socketPath, "")
-	auths := map[string]auth.Authenticator{}
-	auths[authenticator.Name()] = authenticator
+	auths := []AuthenticatorListEntry{
+		AuthenticatorListEntry{
+			Authenticator: authenticator,
+			Default:       false,
+		},
+	}
 	signapi = New(auths, signer, signingKey, 1*time.Hour, 24*time.Hour)
 	signapi.RegisterRoutes(e.Group("/v1"))
 	// Give keysigner some time to initialize

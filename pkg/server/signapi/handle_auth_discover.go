@@ -9,11 +9,12 @@ import (
 
 func (sa *SignApi) HandleAuthDiscover(c echo.Context) error {
 	var r []objects.DiscoverResult
-	for _, auth := range sa.auth {
+	for _, v := range sa.authList {
 		r = append(r, objects.DiscoverResult{
-			AuthenticatorName:           auth.Name(),
-			AuthenticatorRealm:          auth.Realm(),
-			AuthenticatorCredentialType: auth.CredentialType(),
+			AuthenticatorName:           v.Authenticator.Name(),
+			AuthenticatorRealm:          v.Authenticator.Realm(),
+			AuthenticatorCredentialType: v.Authenticator.CredentialType(),
+			Default:                     v.Default,
 		})
 	}
 	return c.JSON(http.StatusOK, r)

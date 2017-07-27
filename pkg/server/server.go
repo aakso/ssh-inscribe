@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/aakso/ssh-inscribe/pkg/auth"
 	authbackend "github.com/aakso/ssh-inscribe/pkg/auth/backend"
 	"github.com/aakso/ssh-inscribe/pkg/config"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"
@@ -71,13 +70,16 @@ func Build() (*Server, error) {
 	}
 
 	// Auth backends
-	auths := map[string]auth.Authenticator{}
+	authList := []signapi.AuthenticatorListEntry{}
 	for _, ab := range conf.AuthBackends {
 		instance, err := authbackend.GetBackend(ab.Type, ab.Config)
 		if err != nil {
 			return nil, errors.Wrap(err, "cannot initialize server")
 		}
-		auths[instance.Name()] = instance
+		authList = append(authList, signapi.AuthenticatorListEntry{
+			Authenticator: instance,
+			Default:       ab.Default,
+		})
 	}
 
 	signer := keysigner.New(conf.AgentSocket, conf.CertSigningKeyFingerprint)
@@ -105,7 +107,7 @@ func Build() (*Server, error) {
 
 	// Signing API
 	signapi := signapi.New(
-		auths,
+		authList,
 		signer,
 		[]byte(conf.TokenSigningKey),
 		defaultlife,
