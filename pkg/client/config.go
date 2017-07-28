@@ -42,4 +42,10 @@ type Config struct {
 
 	// Which auth endpoints to login to
 	LoginAuthEndpoints []string
+
+	// Request only principals matching the pattern to be included
+	IncludePrincipals string
+
+	// Request only principals not matching the pattern to be included
+	ExcludePrincipals string
 }

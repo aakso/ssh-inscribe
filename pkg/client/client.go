@@ -324,6 +324,12 @@ func (c *Client) sign() error {
 		expires := time.Now().Add(c.Config.CertLifetime).Format(time.RFC3339)
 		req.SetQueryParam("expires", expires)
 	}
+	if c.Config.IncludePrincipals != "" {
+		req.SetQueryParam("include_principals", c.Config.IncludePrincipals)
+	}
+	if c.Config.ExcludePrincipals != "" {
+		req.SetQueryParam("exclude_principals", c.Config.ExcludePrincipals)
+	}
 
 	res, err := req.Post(c.urlFor("sign"))
 	if err != nil {

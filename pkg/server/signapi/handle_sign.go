@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/aakso/ssh-inscribe/pkg/auth/authz/authzfilter"
+
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/labstack/echo"
@@ -34,6 +36,27 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 	if err != nil {
 		err = errors.Wrap(err, "cannot parse public key")
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+
+	// User requests to filter principals
+	principalsInclude := c.QueryParam("include_principals")
+	principalsExclude := c.QueryParam("exclude_principals")
+	if principalsInclude != "" || principalsExclude != "" {
+		// Special use case for authzfilter
+		var authz auth.Authorizer
+		authz, err := authzfilter.NewPrincipalFilter(authzfilter.PrincipalFilterConfig{
+			FilterIncludePrincipalsGlob: principalsInclude,
+			FilterExcludePrincipalsGlob: principalsExclude,
+		})
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, errors.Wrap(err, "cannot parse principal filter"))
+		}
+		if ctx, ok := authz.Authorize(actx); !ok {
+			log.Error("user requested principal filter failed, this should not happen")
+			return echo.ErrUnauthorized
+		} else {
+			actx = ctx
+		}
 	}
 
 	cert := auth.MakeCertificate(pubKey, actx)

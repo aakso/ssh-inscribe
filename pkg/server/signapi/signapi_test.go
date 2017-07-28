@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/auth/backend/authmock"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"
+	"github.com/aakso/ssh-inscribe/pkg/logging"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/labstack/echo"
 	"github.com/stretchr/testify/assert"
@@ -50,7 +52,7 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 -----END RSA PRIVATE KEY-----`)
 	testUserPublic                   = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC32gyZOLC0RHDntCk+0T5pDNYYytfmP/Jzx+tpqNGEuCWnOV9PwBLdRPT2SNIzCq1GBQWYg63GZ4qWbuvSBvo904Y69q0RWugbcNjpclzkJGT0Bl50l/ppeuJ8wLVFnguCH92E2ja/8tiIPtetKGmFDdSTETIRshGUE6PnuPy2/1BL1ES55XfOGLcvzf/yDi+JeuwQqWi8YMxAIm8ug0yn4GPBPK/MNpnMG3AQmwmviQT6nC6Ky/B9VJk2418v++lAgKRXwyqUeaHd2jAj+5lQ72zc3mZjwFnwTZJWySaGtqxQea9l1wYOhZOEyV4+KOgfLoZ3ps+vmMLGSxmnGmAj user`)
 	fakeAuthContext auth.AuthContext = auth.AuthContext{
-		Principals:      []string{"fake"},
+		Principals:      []string{"fake1", "fake2", "fake3"},
 		CriticalOptions: map[string]string{"test": "fake"},
 	}
 
@@ -69,6 +71,7 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 )
 
 func TestMain(m *testing.M) {
+	logging.SetLevel(logrus.DebugLevel)
 	signer := keysigner.New(socketPath, "")
 	auths := []AuthenticatorListEntry{
 		AuthenticatorListEntry{
@@ -214,4 +217,48 @@ func TestSignOverMaxLifetime(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	assert.Equal(http.StatusBadRequest, rec.Code)
+}
+
+func TestSignPrincipalFilterInclude(t *testing.T) {
+	assert := assert.New(t)
+	buf := bytes.NewBuffer(testUserPublic)
+	u, _ := url.Parse("/v1/sign")
+	q := u.Query()
+	q.Set("include_principals", "fake2")
+	u.RawQuery = q.Encode()
+	req, _ := http.NewRequest(echo.POST, u.String(), buf)
+	req.Header.Set("X-Auth", "Bearer "+signedToken)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Equal(http.StatusOK, rec.Code)
+
+	raw, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+	if assert.NoError(err) {
+		cert, _ := raw.(*ssh.Certificate)
+		assert.NotNil(cert)
+		assert.Contains(cert.ValidPrincipals, "fake2")
+		assert.NotContains(cert.ValidPrincipals, "fake1")
+	}
+}
+
+func TestSignPrincipalFilterExclude(t *testing.T) {
+	assert := assert.New(t)
+	buf := bytes.NewBuffer(testUserPublic)
+	u, _ := url.Parse("/v1/sign")
+	q := u.Query()
+	q.Set("exclude_principals", "fake2")
+	u.RawQuery = q.Encode()
+	req, _ := http.NewRequest(echo.POST, u.String(), buf)
+	req.Header.Set("X-Auth", "Bearer "+signedToken)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Equal(http.StatusOK, rec.Code)
+
+	raw, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+	if assert.NoError(err) {
+		cert, _ := raw.(*ssh.Certificate)
+		assert.NotNil(cert)
+		assert.Contains(cert.ValidPrincipals, "fake1")
+		assert.NotContains(cert.ValidPrincipals, "fake2")
+	}
 }

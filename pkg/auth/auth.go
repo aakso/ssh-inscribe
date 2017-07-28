@@ -22,14 +22,15 @@ type Authorizer interface {
 }
 
 type AuthContext struct {
-	Parent          *AuthContext
-	SubjectName     string
-	Principals      []string
-	CriticalOptions map[string]string
-	Extensions      map[string]string
-	Authenticator   string
-	Authorizer      string
-	AuthMeta        map[string]interface{}
+	Parent           *AuthContext
+	SubjectName      string
+	Principals       []string
+	RemovePrincipals []string
+	CriticalOptions  map[string]string
+	Extensions       map[string]string
+	Authenticator    string
+	Authorizer       string
+	AuthMeta         map[string]interface{}
 }
 
 func (ac *AuthContext) GetParent() *AuthContext {
@@ -42,10 +43,24 @@ func (ac *AuthContext) GetSubjectName() string {
 	return ac.SubjectName
 }
 func (ac *AuthContext) GetPrincipals() []string {
+	r := ac.Principals
 	if ac.Parent != nil {
-		return append(ac.Principals, ac.Parent.GetPrincipals()...)
+		r = append(r, ac.Parent.GetPrincipals()...)
 	}
-	return append(ac.Principals)
+	if len(ac.RemovePrincipals) > 0 {
+		m := map[string]bool{}
+		for _, v := range ac.RemovePrincipals {
+			m[v] = true
+		}
+		filtered := r[:0]
+		for _, v := range r {
+			if _, found := m[v]; !found {
+				filtered = append(filtered, v)
+			}
+		}
+		r = filtered
+	}
+	return r
 }
 func (ac *AuthContext) GetCriticalOptions() map[string]string {
 	r := map[string]string{}
@@ -73,9 +88,9 @@ func (ac *AuthContext) GetExtensions() map[string]string {
 }
 func (ac *AuthContext) GetAuthenticators() []string {
 	if ac.Parent != nil {
-		return append([]string{ac.Authenticator}, ac.Parent.GetAuthenticators()...)
+		return filterEmptyValues(append([]string{ac.Authenticator}, ac.Parent.GetAuthenticators()...))
 	}
-	return append([]string{ac.Authenticator})
+	return filterEmptyValues(append([]string{ac.Authenticator}))
 }
 func (ac *AuthContext) GetAuthMeta() map[string]interface{} {
 	r := map[string]interface{}{}
@@ -91,13 +106,23 @@ func (ac *AuthContext) GetAuthMeta() map[string]interface{} {
 }
 func (ac *AuthContext) GetAuthorizers() []string {
 	if ac.Parent != nil {
-		return append([]string{ac.Authorizer}, ac.Parent.GetAuthorizers()...)
+		return filterEmptyValues(append([]string{ac.Authorizer}, ac.Parent.GetAuthorizers()...))
 	}
-	return append([]string{ac.Authorizer})
+	return filterEmptyValues(append([]string{ac.Authorizer}))
 }
 
 type Credentials struct {
 	UserIdentifier string `json:"userIdentifier"`
 	Secret         []byte
 	Meta           map[string]interface{}
+}
+
+func filterEmptyValues(sl []string) []string {
+	r := sl[:0]
+	for _, v := range sl {
+		if v != "" {
+			r = append(r, v)
+		}
+	}
+	return r
 }

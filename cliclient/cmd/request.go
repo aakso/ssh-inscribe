@@ -120,4 +120,26 @@ func init() {
 		defLoginAuthEndpoints,
 		"Login to specific auth endpoits ($SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS)",
 	)
+
+	var defIncludePrincipals string
+	if s := os.Getenv("SSH_INSCRIBE_INCLUDE_PRINCIPALS"); s != "" {
+		defIncludePrincipals = s
+	}
+	ReqCmd.Flags().StringVar(
+		&ClientConfig.IncludePrincipals,
+		"include",
+		defIncludePrincipals,
+		"Request only principals matching the glob pattern to be included ($SSH_INSCRIBE_INCLUDE_PRINCIPALS)",
+	)
+
+	var defExcludePrincipals string
+	if s := os.Getenv("SSH_INSCRIBE_EXCLUDE_PRINCIPALS"); s != "" {
+		defExcludePrincipals = s
+	}
+	ReqCmd.Flags().StringVar(
+		&ClientConfig.ExcludePrincipals,
+		"exclude",
+		defExcludePrincipals,
+		"Request only principals not matching the glob pattern to be included ($SSH_INSCRIBE_EXCLUDE_PRINCIPALS)",
+	)
 }
