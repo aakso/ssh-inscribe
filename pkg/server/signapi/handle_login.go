@@ -1,15 +1,31 @@
 package signapi
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/aakso/ssh-inscribe/pkg/auth"
+	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/labstack/echo"
 	"github.com/pkg/errors"
 )
+
+const (
+	MaxAuthContextChainLength = 8
+)
+
+func (sa *SignApi) LoginUserPasswordAuthSkipper(c echo.Context) bool {
+	name, _ := url.PathUnescape(c.Param("name"))
+	if ab, ok := sa.auth[name]; ok {
+		if ab.CredentialType() == auth.CredentialFederated {
+			return true
+		}
+	}
+	return false
+}
 
 func (sa *SignApi) HandleLogin(c echo.Context) error {
 	var parentCtx *auth.AuthContext
@@ -23,6 +39,10 @@ func (sa *SignApi) HandleLogin(c echo.Context) error {
 		if claims, _ := token.Claims.(*SignClaim); claims != nil {
 			parentCtx = claims.AuthContext
 		}
+	}
+
+	if parentCtx != nil && len(parentCtx.GetAuthenticators()) > MaxAuthContextChainLength {
+		return echo.NewHTTPError(http.StatusBadRequest, "auth context chain too long")
 	}
 
 	user, _ := c.Get("username").(string)
@@ -41,6 +61,8 @@ func (sa *SignApi) HandleLogin(c echo.Context) error {
 	claims := SignClaim{
 		AuthContext: actx,
 		StandardClaims: jwt.StandardClaims{
+			Id:        util.RandB64(32), // Nonce
+			NotBefore: time.Now().Unix(),
 			ExpiresAt: time.Now().Add(time.Second * TokenLifeSecs).Unix(),
 		},
 	}
@@ -49,5 +71,36 @@ func (sa *SignApi) HandleLogin(c echo.Context) error {
 	if err != nil {
 		return errors.Wrap(err, "cannot sign token")
 	}
+
+	if actx.Status == auth.StatusPending {
+		// Federated login redirect
+		if redirectURL := actx.GetMetaString(auth.MetaFederationAuthURL); redirectURL != "" {
+			c.Response().Header().Set(echo.HeaderContentType, "application/jwt")
+			c.Response().Header().Set(echo.HeaderLocation, redirectURL)
+			c.Response().WriteHeader(http.StatusSeeOther)
+			fmt.Fprint(c.Response().Writer, signed)
+			return nil
+		}
+	}
+
 	return c.Blob(http.StatusOK, "application/jwt", []byte(signed))
+}
+
+func (sa *SignApi) HandleAuthCallback(c echo.Context) error {
+	name, _ := url.PathUnescape(c.Param("name"))
+	ab, ok := sa.auth[name]
+	if !ok {
+		return echo.ErrNotFound
+	}
+
+	fa, ok := ab.(auth.FederatedAuthenticator)
+	if !ok {
+		return echo.ErrNotFound
+	}
+
+	if err := fa.FederationCallback(c.QueryParams()); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, err)
+	}
+
+	return c.String(http.StatusOK, "Authentication successfull, you can close the window now")
 }

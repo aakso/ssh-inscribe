@@ -3,8 +3,7 @@ package cmd
 import (
 	"fmt"
 
-	_ "github.com/aakso/ssh-inscribe/pkg/auth/backend/authfile"
-	_ "github.com/aakso/ssh-inscribe/pkg/auth/backend/authldap"
+	_ "github.com/aakso/ssh-inscribe/pkg/auth/backend/all"
 	"github.com/aakso/ssh-inscribe/pkg/config"
 	_ "github.com/aakso/ssh-inscribe/pkg/server"
 	"github.com/spf13/cobra"

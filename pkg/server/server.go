@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"runtime"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	authbackend "github.com/aakso/ssh-inscribe/pkg/auth/backend"
 	"github.com/aakso/ssh-inscribe/pkg/config"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"
@@ -42,8 +44,8 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) initApi() {
+	s.web.Use(RecoverHandler(Log))
 	s.web.HTTPErrorHandler = errorHandler
-	s.web.Use(middleware.Recover())
 	s.web.Use(RequestLogger(Log))
 	s.web.Use(middleware.BodyLimit("1M"))
 	g := s.web.Group("/v1")
@@ -140,6 +142,30 @@ func errorHandler(err error, c echo.Context) {
 			c.NoContent(code)
 		} else {
 			c.String(code, fmt.Sprintf("%s", msg))
+		}
+	}
+}
+
+// Simplified version of the echo's recover handler with support for logrus logging
+func RecoverHandler(log *logrus.Entry) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			defer func() {
+				if r := recover(); r != nil {
+					var err error
+					switch r := r.(type) {
+					case error:
+						err = r
+					default:
+						err = fmt.Errorf("%v", r)
+					}
+					stack := make([]byte, 4<<10)
+					length := runtime.Stack(stack, false)
+					log.WithError(err).WithField("stack", fmt.Sprintf("%s", stack[:length])).Error("PANIC RECOVER")
+					c.Error(err)
+				}
+			}()
+			return next(c)
 		}
 	}
 }

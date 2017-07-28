@@ -3,8 +3,10 @@ package auth
 const (
 	CredentialUserPassword = "user_password"
 	CredentialPin          = "pin"
+	CredentialFederated    = "federated"
 
-	MetaAuditID = "audit_id"
+	MetaAuditID           = "audit_id"
+	MetaFederationAuthURL = "federation_auth_url"
 )
 
 type Authenticator interface {
@@ -15,14 +17,26 @@ type Authenticator interface {
 	CredentialType() string
 }
 
+// For OAuth2 type authenticators
+type FederatedAuthenticator interface {
+	Authenticator
+	FederationCallback(data interface{}) error
+}
+
 type Authorizer interface {
 	Authorize(parentctx *AuthContext) (newctx *AuthContext, success bool)
 	Name() string
 	Description() string
 }
 
+const (
+	StatusPending int = iota
+	StatusCompleted
+)
+
 type AuthContext struct {
 	Parent           *AuthContext
+	Status           int
 	SubjectName      string
 	Principals       []string
 	RemovePrincipals []string
@@ -44,6 +58,9 @@ func (ac *AuthContext) GetSubjectName() string {
 }
 func (ac *AuthContext) GetPrincipals() []string {
 	r := ac.Principals
+	if ac.Status != StatusCompleted {
+		return []string{}
+	}
 	if ac.Parent != nil {
 		r = append(r, ac.Parent.GetPrincipals()...)
 	}
@@ -69,6 +86,9 @@ func (ac *AuthContext) GetCriticalOptions() map[string]string {
 			r[k] = v
 		}
 	}
+	if ac.Status != StatusCompleted {
+		return map[string]string{}
+	}
 	for k, v := range ac.CriticalOptions {
 		r[k] = v
 	}
@@ -80,6 +100,9 @@ func (ac *AuthContext) GetExtensions() map[string]string {
 		for k, v := range ac.Parent.GetExtensions() {
 			r[k] = v
 		}
+	}
+	if ac.Status != StatusCompleted {
+		return map[string]string{}
 	}
 	for k, v := range ac.Extensions {
 		r[k] = v
@@ -109,6 +132,17 @@ func (ac *AuthContext) GetAuthorizers() []string {
 		return filterEmptyValues(append([]string{ac.Authorizer}, ac.Parent.GetAuthorizers()...))
 	}
 	return filterEmptyValues(append([]string{ac.Authorizer}))
+}
+
+func (ac *AuthContext) GetMetaString(k string) string {
+	if v, ok := ac.AuthMeta[k]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+		return ""
+	}
+	return ""
+
 }
 
 type Credentials struct {

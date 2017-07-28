@@ -88,6 +88,7 @@ func (pf *PrincipalFilter) Authorize(actx *auth.AuthContext) (*auth.AuthContext,
 		}
 	}
 	return &auth.AuthContext{
+		Status:           auth.StatusCompleted,
 		Parent:           actx,
 		RemovePrincipals: removePrincipals,
 		Authorizer:       pf.Name(),

@@ -68,6 +68,7 @@ func (fa *AuthFile) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		log.WithField("user", creds.UserIdentifier).Debug("plain password auth successful")
 	}
 	return &auth.AuthContext{
+		Status:          auth.StatusCompleted,
 		Parent:          pctx,
 		SubjectName:     entry.Name,
 		Principals:      entry.Principals,
@@ -100,6 +101,7 @@ func New(config *Config) (*AuthFile, error) {
 		users:  make(map[string]UserEntry),
 		log: Log.WithFields(logrus.Fields{
 			"realm": config.Realm,
+			"name":  config.Name,
 		}),
 	}
 	if err := r.Reload(); err != nil {

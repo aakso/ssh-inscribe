@@ -13,6 +13,7 @@ import (
 
 func authContext() *auth.AuthContext {
 	first := &auth.AuthContext{
+		Status:      auth.StatusCompleted,
 		SubjectName: "test",
 		Principals: []string{
 			"first.test1",
@@ -20,6 +21,7 @@ func authContext() *auth.AuthContext {
 		},
 	}
 	second := &auth.AuthContext{
+		Status: auth.StatusCompleted,
 		Parent: first,
 		Principals: []string{
 			"second.test1",

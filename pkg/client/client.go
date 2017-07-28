@@ -23,6 +23,7 @@ import (
 	"github.com/go-resty/resty"
 	"github.com/howeyc/gopass"
 	"github.com/pkg/errors"
+	"github.com/skratchdot/open-golang/open"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 )
@@ -36,7 +37,17 @@ const (
 
 	// Comment to use for keys on agent
 	AgentComment = "ssh-inscribe managed"
+
+	FederatedAuthenticatorPollInterval = 3
 )
+
+const spinner = `\|/-`
+
+type ignoreRedirects struct{}
+
+func (ir *ignoreRedirects) Apply(req *http.Request, via []*http.Request) error {
+	return http.ErrUseLastResponse
+}
 
 type Client struct {
 	Config          *Config
@@ -352,6 +363,47 @@ func (c *Client) sign() error {
 	return nil
 }
 
+func (c *Client) authenticateFederated(authName, authRealm string) error {
+	log := Log.WithField("action", "authenticateFederated").
+		WithField("authenticator", authName)
+	log.Debug("making initial authentication request to get the auth url")
+	initial := true
+	req := c.newReq()
+	for i := 0; true; i++ {
+		if c.signerToken != nil {
+			req.SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken))
+		}
+		res, err := req.Post(c.urlFor("auth/" + authName))
+		if err != nil {
+			return errors.Wrap(err, "could not authenticate")
+		}
+		switch res.StatusCode() {
+		case http.StatusSeeOther:
+			c.signerToken = res.Body()
+			if initial {
+				url := res.Header().Get("Location")
+				openFederatedAuthURL(url)
+			}
+			fmt.Printf("\rWaiting for authentication to complete for %q (%s) %s ",
+				authName,
+				authRealm,
+				string(spinner[i%4]))
+			time.Sleep(FederatedAuthenticatorPollInterval * time.Second)
+			initial = false
+		case http.StatusOK:
+			fmt.Println()
+			c.signerToken = res.Body()
+			log.Debug("authentication successful")
+			return nil
+		case http.StatusUnauthorized:
+			return errors.New("authentication failed")
+		default:
+			return errors.Errorf("unknown federated auth response: %d", res.StatusCode())
+		}
+	}
+	return errors.New("could not authenticate")
+}
+
 func (c *Client) discoverAuthenticators() ([]objects.DiscoverResult, error) {
 	log := Log.WithField("action", "discoverAuthenticators")
 	log.Debug("discovering authenticators")
@@ -417,6 +469,8 @@ func (c *Client) authenticate() error {
 			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePassword))
 		case auth.CredentialPin:
 			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePin))
+		case auth.CredentialFederated:
+			return c.authenticateFederated(au.AuthenticatorName, au.AuthenticatorRealm)
 		default:
 			return errors.Errorf("unknown credential type %s", au.AuthenticatorCredentialType)
 		}
@@ -612,7 +666,8 @@ func (c *Client) initREST() error {
 		SetHostURL(c.Config.URL).
 		SetTimeout(c.Config.Timeout).
 		SetRetryCount(int(c.Config.Retries)).
-		SetLogger(ioutil.Discard)
+		SetLogger(ioutil.Discard).
+		SetRedirectPolicy(&ignoreRedirects{})
 
 	if parsed.Scheme == "https" {
 		rest.SetScheme("https")
@@ -692,6 +747,14 @@ func (c *Client) urlFor(s string) string {
 func (c *Client) Close() {
 	if c.agentClient != nil {
 		c.agentConn.Close()
+	}
+}
+
+func openFederatedAuthURL(url string) {
+	fmt.Printf("Attempting to open browser to URL: %s\n", url)
+	fmt.Println("If the browser doesn't open, navigate to the URL manually")
+	if err := open.Start(url); err != nil {
+		Log.WithError(err).Warning("cannot open browser")
 	}
 }
 
