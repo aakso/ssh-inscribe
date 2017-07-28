@@ -40,6 +40,12 @@
 			"revisionTime": "2017-03-19T17:57:11Z"
 		},
 		{
+			"checksumSHA1": "/RE0VzeaXdaBUNeNMUXWqzly7qY=",
+			"path": "github.com/gobwas/glob",
+			"revision": "51eb1ee00b6d931c66d229ceeb7c31b985563420",
+			"revisionTime": "2017-02-12T20:01:51Z"
+		},
+		{
 			"checksumSHA1": "K6exl2ouL7d8cR2i378EzZOdRVI=",
 			"path": "github.com/howeyc/gopass",
 			"revision": "bf9dde6d0d2c004a008c27aaee91170c786f6db8",
@@ -125,16 +131,16 @@
 			"revisionTime": "2017-01-30T11:31:45Z"
 		},
 		{
-			"checksumSHA1": "hgI9+1CnDX7GUG7WuHqjYH2nyA0=",
+			"checksumSHA1": "43IRTqKhvUH3i2J0UV0iUcIvucw=",
 			"path": "github.com/spf13/cobra",
-			"revision": "fcd0c5a1df88f5d6784cb4feead962c3f3d0b66c",
-			"revisionTime": "2017-02-28T19:17:48Z"
+			"revision": "34594c771f2c18301dc152640ad40ece28795373",
+			"revisionTime": "2017-07-24T19:36:59Z"
 		},
 		{
-			"checksumSHA1": "5KvHyB1CImtwZT3fwNkNUlc8R0k=",
+			"checksumSHA1": "STxYqRb4gnlSr3mRpT+Igfdz/kM=",
 			"path": "github.com/spf13/pflag",
-			"revision": "9ff6c6923cfffbcd502984b8e0c80539a94968b7",
-			"revisionTime": "2017-01-30T21:42:45Z"
+			"revision": "e57e3eeb33f795204c1ca35f56c44f83227c6e66",
+			"revisionTime": "2017-05-08T18:43:26Z"
 		},
 		{
 			"checksumSHA1": "JXUVA1jky8ZX8w09p2t5KLs97Nc=",
