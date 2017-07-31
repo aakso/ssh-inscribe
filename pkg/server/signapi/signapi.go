@@ -5,6 +5,7 @@ import (
 
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"
+	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/dgrijalva/jwt-go"
 )
 
@@ -53,4 +54,16 @@ func New(
 type SignClaim struct {
 	AuthContext *auth.AuthContext
 	jwt.StandardClaims
+}
+
+func (sa *SignApi) makeToken(actx *auth.AuthContext) *jwt.Token {
+	claims := SignClaim{
+		AuthContext: actx,
+		StandardClaims: jwt.StandardClaims{
+			Id:        util.RandB64(32), // Nonce
+			NotBefore: time.Now().Unix(),
+			ExpiresAt: time.Now().Add(time.Second * TokenLifeSecs).Unix(),
+		},
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 }

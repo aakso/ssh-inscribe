@@ -1,8 +1,6 @@
 package signapi
 
 import (
-	"fmt"
-
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/labstack/echo"
@@ -29,7 +27,6 @@ func (sa *SignApi) RegisterRoutes(g *echo.Group) {
 func userPasswordForward(skipper middleware.Skipper) echo.MiddlewareFunc {
 	return middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
 		Validator: func(user string, pw string, c echo.Context) bool {
-			fmt.Println("in userpw")
 			c.Set("username", user)
 			c.Set("password", pw)
 			return true

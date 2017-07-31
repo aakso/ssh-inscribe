@@ -4,10 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/aakso/ssh-inscribe/pkg/auth"
-	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/labstack/echo"
 	"github.com/pkg/errors"
@@ -41,7 +39,7 @@ func (sa *SignApi) HandleLogin(c echo.Context) error {
 		}
 	}
 
-	if parentCtx != nil && len(parentCtx.GetAuthenticators()) > MaxAuthContextChainLength {
+	if parentCtx != nil && parentCtx.Len() > MaxAuthContextChainLength {
 		return echo.NewHTTPError(http.StatusBadRequest, "auth context chain too long")
 	}
 
@@ -58,15 +56,8 @@ func (sa *SignApi) HandleLogin(c echo.Context) error {
 	if !ok {
 		return echo.ErrUnauthorized
 	}
-	claims := SignClaim{
-		AuthContext: actx,
-		StandardClaims: jwt.StandardClaims{
-			Id:        util.RandB64(32), // Nonce
-			NotBefore: time.Now().Unix(),
-			ExpiresAt: time.Now().Add(time.Second * TokenLifeSecs).Unix(),
-		},
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+
+	token := sa.makeToken(actx)
 	signed, err := token.SignedString(sa.tkey)
 	if err != nil {
 		return errors.Wrap(err, "cannot sign token")

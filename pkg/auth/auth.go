@@ -50,20 +50,22 @@ type AuthContext struct {
 func (ac *AuthContext) GetParent() *AuthContext {
 	return ac.Parent
 }
+
 func (ac *AuthContext) GetSubjectName() string {
 	if ac.SubjectName == "" && ac.Parent != nil {
 		return ac.Parent.GetSubjectName()
 	}
 	return ac.SubjectName
 }
+
 func (ac *AuthContext) GetPrincipals() []string {
-	r := ac.Principals
-	if ac.Status != StatusCompleted {
-		return []string{}
-	}
+	var r []string
 	if ac.Parent != nil {
 		r = append(r, ac.Parent.GetPrincipals()...)
 	}
+
+	r = append(r, ac.Principals...)
+
 	if len(ac.RemovePrincipals) > 0 {
 		m := map[string]bool{}
 		for _, v := range ac.RemovePrincipals {
@@ -79,6 +81,7 @@ func (ac *AuthContext) GetPrincipals() []string {
 	}
 	return r
 }
+
 func (ac *AuthContext) GetCriticalOptions() map[string]string {
 	r := map[string]string{}
 	if ac.Parent != nil {
@@ -86,14 +89,12 @@ func (ac *AuthContext) GetCriticalOptions() map[string]string {
 			r[k] = v
 		}
 	}
-	if ac.Status != StatusCompleted {
-		return map[string]string{}
-	}
 	for k, v := range ac.CriticalOptions {
 		r[k] = v
 	}
 	return r
 }
+
 func (ac *AuthContext) GetExtensions() map[string]string {
 	r := map[string]string{}
 	if ac.Parent != nil {
@@ -101,20 +102,28 @@ func (ac *AuthContext) GetExtensions() map[string]string {
 			r[k] = v
 		}
 	}
-	if ac.Status != StatusCompleted {
-		return map[string]string{}
-	}
 	for k, v := range ac.Extensions {
 		r[k] = v
 	}
 	return r
 }
+
+// The length of the auth context chain
+func (ac *AuthContext) Len() int {
+	l := 1
+	if ac.Parent != nil {
+		l += ac.Parent.Len()
+	}
+	return l
+}
+
 func (ac *AuthContext) GetAuthenticators() []string {
 	if ac.Parent != nil {
 		return filterEmptyValues(append([]string{ac.Authenticator}, ac.Parent.GetAuthenticators()...))
 	}
 	return filterEmptyValues(append([]string{ac.Authenticator}))
 }
+
 func (ac *AuthContext) GetAuthMeta() map[string]interface{} {
 	r := map[string]interface{}{}
 	if ac.Parent != nil {
@@ -127,11 +136,26 @@ func (ac *AuthContext) GetAuthMeta() map[string]interface{} {
 	}
 	return r
 }
+
 func (ac *AuthContext) GetAuthorizers() []string {
 	if ac.Parent != nil {
 		return filterEmptyValues(append([]string{ac.Authorizer}, ac.Parent.GetAuthorizers()...))
 	}
 	return filterEmptyValues(append([]string{ac.Authorizer}))
+}
+
+// Verify the whole auth context chain
+func (ac *AuthContext) IsValid() bool {
+	var valid bool
+	// Check the status is completed (for federated auth)
+	valid = ac.Status == StatusCompleted
+
+	// Check parent context
+	if ac.Parent != nil {
+		valid = valid && ac.Parent.IsValid()
+	}
+
+	return valid
 }
 
 func (ac *AuthContext) GetMetaString(k string) string {

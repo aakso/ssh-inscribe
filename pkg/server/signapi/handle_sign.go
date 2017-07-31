@@ -26,6 +26,10 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 	}
 	log := Log.WithField("audit_id", actx.GetAuthMeta()[auth.MetaAuditID])
 
+	if !actx.IsValid() {
+		return echo.NewHTTPError(http.StatusBadRequest, "auth context is not valid")
+	}
+
 	body, err := ioutil.ReadAll(c.Request().Body)
 	if err != nil {
 		err = errors.Wrap(err, "cannot read public key")

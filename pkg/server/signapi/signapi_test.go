@@ -144,6 +144,27 @@ func TestMultiFactorAuth(t *testing.T) {
 	}
 }
 
+func TestLoginLongAuthContext(t *testing.T) {
+	assert := assert.New(t)
+	actx := &auth.AuthContext{Status: auth.StatusCompleted}
+	for i := 1; i <= MaxAuthContextChainLength; i++ {
+		actx = &auth.AuthContext{Parent: actx, Status: auth.StatusCompleted}
+	}
+	token := signapi.makeToken(actx)
+	ss, _ := token.SignedString(signapi.tkey)
+
+	req, _ := http.NewRequest(echo.POST, "/v1/auth/"+authenticator.Name(), nil)
+	req.SetBasicAuth(authenticator.User, string(authenticator.Secret))
+	req.Header.Set("X-Auth", "Bearer "+ss)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Equal(http.StatusBadRequest, rec.Code)
+	_, err := jwt.ParseWithClaims(rec.Body.String(), &SignClaim{}, func(token *jwt.Token) (interface{}, error) {
+		return signingKey, nil
+	})
+	assert.Error(err, "we shouldn't have received a valid token")
+}
+
 func TestSignNoKey(t *testing.T) {
 	assert := assert.New(t)
 	buf := bytes.NewBuffer(testUserPublic)
@@ -202,6 +223,28 @@ func TestSignCustomExpires(t *testing.T) {
 		assert.NotNil(cert)
 		assert.Equal(exp.Unix(), int64(cert.ValidBefore))
 	}
+}
+
+func TestSignPendingAuthContext(t *testing.T) {
+	assert := assert.New(t)
+	//
+	actx := &auth.AuthContext{
+		Parent: &auth.AuthContext{
+			Status: auth.StatusPending,
+		},
+		Status: auth.StatusCompleted,
+	}
+	token := signapi.makeToken(actx)
+	ss, _ := token.SignedString(signapi.tkey)
+
+	u, _ := url.Parse("/v1/sign")
+	req, _ := http.NewRequest(echo.POST, u.String(), nil)
+	req.Header.Set("X-Auth", "Bearer "+ss)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Equal(http.StatusBadRequest, rec.Code)
+	_, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+	assert.Error(err, "we shouldn't have received a certificate")
 }
 
 func TestSignOverMaxLifetime(t *testing.T) {
