@@ -30,18 +30,6 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "auth context is not valid")
 	}
 
-	body, err := ioutil.ReadAll(c.Request().Body)
-	if err != nil {
-		err = errors.Wrap(err, "cannot read public key")
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-
-	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(body)
-	if err != nil {
-		err = errors.Wrap(err, "cannot parse public key")
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	}
-
 	// User requests to filter principals
 	principalsInclude := c.QueryParam("include_principals")
 	principalsExclude := c.QueryParam("exclude_principals")
@@ -61,6 +49,17 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 		} else {
 			actx = ctx
 		}
+	}
+
+	body, err := ioutil.ReadAll(c.Request().Body)
+	if err != nil {
+		err = errors.Wrap(err, "cannot read public key")
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(body)
+	if err != nil {
+		err = errors.Wrap(err, "cannot parse public key")
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
 	cert := auth.MakeCertificate(pubKey, actx)
@@ -84,7 +83,13 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 	}
 	log.
 		WithField("key_id", cert.KeyId).
+		WithField("principals", cert.ValidPrincipals).
+		WithField("critical_options", cert.CriticalOptions).
+		WithField("extensions", cert.Extensions).
+		WithField("not_before", time.Unix(int64(cert.ValidAfter), 0)).
 		WithField("expires", time.Unix(int64(cert.ValidBefore), 0)).
+		WithField("pubkey_fp", ssh.FingerprintSHA256(pubKey)).
+		WithField("pubkey_fp_md5", ssh.FingerprintLegacyMD5(pubKey)).
 		Info("issued certificate")
 	return c.Blob(http.StatusOK, "text/plain", ssh.MarshalAuthorizedKey(cert))
 }
