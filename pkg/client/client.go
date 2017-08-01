@@ -238,21 +238,47 @@ func (c *Client) storeInAgent() error {
 		return err
 	}
 
-	if err := c.agentClient.Add(agent.AddedKey{
-		PrivateKey:  c.userPrivateKey,
-		Certificate: c.userCert,
-		Comment:     AgentComment,
-	}); err != nil {
+	// Find out if our private key is already in the agent. In that case let us not
+	// add time constraint to it
+	keyInAgent := false
+	err = iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
+		if bytes.Equal(key.Marshal(), c.userCert.Key.Marshal()) {
+			log.Debug("private key already in agent")
+			keyInAgent = true
+		}
+		return nil
+	})
+	if err != nil {
 		return errors.Wrap(err, "could not add to agent")
 	}
-	log.WithField("keyid", c.userCert.KeyId).Debug("added certificate")
-	if err := c.agentClient.Add(agent.AddedKey{
-		PrivateKey: c.userPrivateKey,
-		Comment:    AgentComment,
-	}); err != nil {
+
+	var lifetime uint32
+	if c.userCert.ValidBefore != 0 {
+		lifetime = uint32(time.Until(time.Unix(int64(c.userCert.ValidBefore), 0)).Seconds())
+	}
+	addedKey := agent.AddedKey{
+		PrivateKey:   c.userPrivateKey,
+		Certificate:  c.userCert,
+		Comment:      AgentComment,
+		LifetimeSecs: lifetime,
+	}
+	if err := c.agentClient.Add(addedKey); err != nil {
 		return errors.Wrap(err, "could not add to agent")
 	}
-	log.Debug("added private key")
+	log.WithField("keyid", c.userCert.KeyId).
+		WithField("lifetime_secs", addedKey.LifetimeSecs).Debug("added certificate")
+
+	if !keyInAgent {
+		addedKey = agent.AddedKey{
+			PrivateKey:   c.userPrivateKey,
+			Comment:      AgentComment,
+			LifetimeSecs: lifetime,
+		}
+		if err := c.agentClient.Add(addedKey); err != nil {
+			return errors.Wrap(err, "could not add to agent")
+		}
+		log.WithField("lifetime_secs", addedKey.LifetimeSecs).Debug("added private key")
+	}
 	return nil
 }
 func (c *Client) storeInFile() error {
