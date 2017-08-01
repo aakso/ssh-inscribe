@@ -470,7 +470,8 @@ func (c *Client) authenticate() error {
 		case auth.CredentialPin:
 			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePin))
 		case auth.CredentialFederated:
-			return c.authenticateFederated(au.AuthenticatorName, au.AuthenticatorRealm)
+			c.authenticateFederated(au.AuthenticatorName, au.AuthenticatorRealm)
+			continue
 		default:
 			return errors.Errorf("unknown credential type %s", au.AuthenticatorCredentialType)
 		}
