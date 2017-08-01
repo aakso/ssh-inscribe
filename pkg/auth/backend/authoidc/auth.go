@@ -25,9 +25,9 @@ const (
 	Principals  = "Principals"
 )
 
-type entryAuthContext struct {
-	actx *auth.AuthContext
-	ts   time.Time
+type entryState struct {
+	token *oauth2.Token
+	ts    time.Time
 }
 
 type AuthOIDC struct {
@@ -38,7 +38,7 @@ type AuthOIDC struct {
 	verifier    *oidc.IDTokenVerifier
 
 	sync.Mutex
-	pendingRequests map[string]entryAuthContext
+	pendingRequests map[string]entryState
 	nextEvict       *time.Timer
 }
 
@@ -47,12 +47,12 @@ func (ao *AuthOIDC) authFlowTimeout() time.Duration {
 }
 
 // Save pending auth request with state key and schedule an evict task
-func (ao *AuthOIDC) saveState(state string, actx *auth.AuthContext) error {
+func (ao *AuthOIDC) saveState(state string, token *oauth2.Token) error {
 	if len(ao.pendingRequests) >= ao.config.MaxPendingAuthAttempts {
 		return errors.New("maximum number of pending requests reached")
 	}
 
-	ao.pendingRequests[state] = entryAuthContext{actx: actx, ts: time.Now()}
+	ao.pendingRequests[state] = entryState{token: token, ts: time.Now()}
 	if ao.nextEvict != nil {
 		ao.nextEvict.Reset(ao.authFlowTimeout())
 	} else {
@@ -66,10 +66,10 @@ func (ao *AuthOIDC) saveState(state string, actx *auth.AuthContext) error {
 }
 
 // Return auth request if sate key matches and the request hasn't expired
-func (ao *AuthOIDC) getState(state string) *auth.AuthContext {
+func (ao *AuthOIDC) getState(state string) *entryState {
 	if v, ok := ao.pendingRequests[state]; ok {
 		if v.ts.Add(ao.authFlowTimeout()).After(time.Now()) {
-			return v.actx
+			return &v
 		}
 	}
 	return nil
@@ -80,9 +80,7 @@ func (ao *AuthOIDC) evictStateEntries() {
 	for k, v := range ao.pendingRequests {
 		if v.ts.Add(ao.authFlowTimeout()).Before(time.Now()) {
 			delete(ao.pendingRequests, k)
-			ao.log.WithField("state", k).
-				WithField("audit_id", v.actx.GetMetaString(auth.MetaAuditID)).
-				Info("evicted")
+			ao.log.WithField("state", k).Info("evicted")
 		}
 	}
 }
@@ -103,7 +101,7 @@ func (ao *AuthOIDC) startFlow(pctx *auth.AuthContext, meta map[string]interface{
 		Authenticator: ao.Name(),
 		AuthMeta:      meta,
 	}
-	if err := ao.saveState(state, newctx); err != nil {
+	if err := ao.saveState(state, nil); err != nil {
 		log.WithError(err).Error("cannot save state")
 		return nil, false
 	}
@@ -118,25 +116,22 @@ func (ao *AuthOIDC) completeFlow(pctx *auth.AuthContext) (*auth.AuthContext, boo
 	log = log.WithField("audit_id", auditID).
 		WithField("state", state)
 	// Check whether this is a started authorization
-	pending := ao.getState(state)
-	if pending == nil {
-		log.Warning("unknown pending auth request")
-		return pctx, false
+	if entry := ao.getState(state); entry != nil {
+		if entry.token != nil {
+			if err := ao.processToken(pctx, entry.token); err != nil {
+				log.WithError(err).Error("cannot process token")
+				return nil, false
+			}
+			delete(ao.pendingRequests, state)
+			log.Info("completed authentication")
+			return pctx, true
+		} else {
+			log.Info("auth flow is incomplete")
+			return pctx, true
+		}
 	}
-	switch pending.Status {
-	// Status is still pending, user hasn't completed the oauth flow
-	case auth.StatusPending:
-		log.Info("auth flow is incomplete")
-		return pctx, true
-	// Auth flow completed, return the new ctx
-	case auth.StatusCompleted:
-		delete(ao.pendingRequests, state)
-		log.Info("completed authentication")
-		return pending, true
-	default:
-		log.WithField("actx_status", pending.Status).Warning("unknown auth ctx status")
-		return nil, false
-	}
+	log.Warning("unknown pending auth request")
+	return nil, false
 }
 
 func (ao *AuthOIDC) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials) (*auth.AuthContext, bool) {
@@ -195,12 +190,11 @@ func (ao *AuthOIDC) FederationCallback(data interface{}) error {
 	}
 	ao.Lock()
 	defer ao.Unlock()
-	actx := ao.getState(state)
-	if actx == nil {
+	entry := ao.getState(state)
+	if entry == nil {
 		log.Info("unknown state")
 		return errors.New("no matching state found")
 	}
-	log = log.WithField("audit_id", actx.GetMetaString(auth.MetaAuditID))
 
 	tctx, cancel := context.WithTimeout(context.Background(), time.Duration(ao.config.Timeout)*time.Second)
 	defer cancel()
@@ -210,9 +204,7 @@ func (ao *AuthOIDC) FederationCallback(data interface{}) error {
 		log.WithError(err).Error("cannot exchange auth code")
 		return errors.Wrap(err, "cannot exchange auth code")
 	}
-	log.Debug("validating token")
-	if err := ao.processToken(actx, token); err != nil {
-		log.WithError(err).Error("cannot process token")
+	if err := ao.saveState(state, token); err != nil {
 		return err
 	}
 	log.Info("callback succeeded")
@@ -229,7 +221,7 @@ func (ao *AuthOIDC) processToken(actx *auth.AuthContext, token *oauth2.Token) er
 	defer cancel()
 	IDToken, err := ao.verifier.Verify(tctx, jwtToken)
 	if err != nil {
-		return errors.Wrapf(err, "%s: verify error", err)
+		return errors.Wrap(err, "verify error")
 	}
 	claims := map[string]interface{}{}
 	IDToken.Claims(&claims)
@@ -297,7 +289,7 @@ func New(config *Config) (*AuthOIDC, error) {
 
 	r := &AuthOIDC{
 		config:          config,
-		pendingRequests: map[string]entryAuthContext{},
+		pendingRequests: map[string]entryState{},
 		oauthConfig: &oauth2.Config{
 			RedirectURL:  config.RedirectURL,
 			Endpoint:     provider.Endpoint(),

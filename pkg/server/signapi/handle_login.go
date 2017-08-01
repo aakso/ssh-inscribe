@@ -69,8 +69,8 @@ func (sa *SignApi) HandleLogin(c echo.Context) error {
 			c.Response().Header().Set(echo.HeaderContentType, "application/jwt")
 			c.Response().Header().Set(echo.HeaderLocation, redirectURL)
 			c.Response().WriteHeader(http.StatusSeeOther)
-			fmt.Fprint(c.Response().Writer, signed)
-			return nil
+			_, err := fmt.Fprint(c.Response().Writer, signed)
+			return err
 		}
 	}
 

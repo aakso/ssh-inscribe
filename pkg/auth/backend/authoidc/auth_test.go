@@ -77,6 +77,7 @@ func cleanup() {
 
 func initKeys() {
 	var err error
+	keys.Keys = []jose.JSONWebKey{}
 	privateKey, err = rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		panic(err)
@@ -169,7 +170,16 @@ func TestFederationCallback(t *testing.T) {
 	}))
 	defer tsrv.Close()
 	assert := assert.New(t)
-	newctx, ok := ab.Authenticate(nil, &auth.Credentials{})
+	pctx := &auth.AuthContext{
+		Status:        auth.StatusCompleted,
+		Authenticator: "some other",
+	}
+	newctx, ok := ab.Authenticate(pctx, &auth.Credentials{})
+	assert.True(ok)
+	if !assert.NotNil(newctx) {
+		return
+	}
+	newctx, ok = ab.Authenticate(newctx, &auth.Credentials{})
 	assert.True(ok)
 	if !assert.NotNil(newctx) {
 		return
@@ -204,8 +214,9 @@ func TestFederationCallback(t *testing.T) {
 	assert.Equal(auth.StatusCompleted, newctx.Status)
 	assert.Equal(userName, newctx.SubjectName)
 	assert.Equal(groups, newctx.Principals)
+	assert.Equal(2, newctx.Len())
 
 	newctx, ok = ab.Authenticate(newctx, &auth.Credentials{})
 	assert.False(ok, "repeating completed flow should return auth failure")
-	assert.NotNil(newctx, "repeating completed flow should return auth failure")
+	assert.Nil(newctx, "repeating completed flow should return auth failure")
 }
