@@ -117,7 +117,7 @@ rpm_setup_client_fpm_files:
 
 .PHONY: test
 test:
-	go test $(shell git grep  -l '!race' ./**/*_test.go | xargs -n 1 dirname | uniq | sed 's/^/\.\//')
+	go test $(shell git grep  -l '!race' ./pkg | xargs -n 1 dirname | uniq | sed 's/^/\.\//')
 	go test -race ./pkg/...
 
 .PHONY: clean
