@@ -3,8 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
-	"time"
 
 	"github.com/aakso/ssh-inscribe/pkg/client"
 	"github.com/spf13/cobra"
@@ -44,17 +42,6 @@ func init() {
 		"Identity (private key) file location. Required if --generate is unset ($SSH_INSCRIBE_IDENTITY)",
 	)
 
-	var defExpire time.Duration
-	if expire := os.Getenv("SSH_INSCRIBE_EXPIRE"); expire != "" {
-		defExpire, _ = time.ParseDuration(expire)
-	}
-	ReqCmd.Flags().DurationVarP(
-		&ClientConfig.CertLifetime,
-		"expire",
-		"e",
-		defExpire,
-		"Request specific lifetime. Example '10m' ($SSH_INSCRIBE_EXPIRE)",
-	)
 	if os.Getenv("SSH_INSCRIBE_WRITE") != "" {
 		ClientConfig.WriteCert = true
 	}
@@ -107,39 +94,5 @@ func init() {
 		"list-logins",
 		false,
 		"List available auth endpoints",
-	)
-
-	defLoginAuthEndpoints := []string{}
-	if logins := os.Getenv("SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS"); logins != "" {
-		defLoginAuthEndpoints = strings.Split(logins, ",")
-	}
-	ReqCmd.Flags().StringSliceVarP(
-		&ClientConfig.LoginAuthEndpoints,
-		"login",
-		"l",
-		defLoginAuthEndpoints,
-		"Login to specific auth endpoits ($SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS)",
-	)
-
-	var defIncludePrincipals string
-	if s := os.Getenv("SSH_INSCRIBE_INCLUDE_PRINCIPALS"); s != "" {
-		defIncludePrincipals = s
-	}
-	ReqCmd.Flags().StringVar(
-		&ClientConfig.IncludePrincipals,
-		"include",
-		defIncludePrincipals,
-		"Request only principals matching the glob pattern to be included ($SSH_INSCRIBE_INCLUDE_PRINCIPALS)",
-	)
-
-	var defExcludePrincipals string
-	if s := os.Getenv("SSH_INSCRIBE_EXCLUDE_PRINCIPALS"); s != "" {
-		defExcludePrincipals = s
-	}
-	ReqCmd.Flags().StringVar(
-		&ClientConfig.ExcludePrincipals,
-		"exclude",
-		defExcludePrincipals,
-		"Request only principals not matching the glob pattern to be included ($SSH_INSCRIBE_EXCLUDE_PRINCIPALS)",
 	)
 }

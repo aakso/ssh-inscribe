@@ -99,7 +99,7 @@ func init() {
 		&ClientConfig.Debug,
 		"debug",
 		ClientConfig.Debug,
-		"Enable request level debugging (contains sensitive data) ($SSH_INSCRIBE_DEBUG)",
+		"Enable request level debugging (outputs sensitive data) ($SSH_INSCRIBE_DEBUG)",
 	)
 
 	if os.Getenv("SSH_INSCRIBE_INSECURE") != "" {
@@ -131,5 +131,51 @@ func init() {
 		"q",
 		ClientConfig.Quiet,
 		"Set quiet mode ($SSH_INSCRIBE_QUIET)",
+	)
+
+	defLoginAuthEndpoints := []string{}
+	if logins := os.Getenv("SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS"); logins != "" {
+		defLoginAuthEndpoints = strings.Split(logins, ",")
+	}
+	RootCmd.PersistentFlags().StringSliceVarP(
+		&ClientConfig.LoginAuthEndpoints,
+		"login",
+		"l",
+		defLoginAuthEndpoints,
+		"Login to specific auth endpoits ($SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS)",
+	)
+
+	var defIncludePrincipals string
+	if s := os.Getenv("SSH_INSCRIBE_INCLUDE_PRINCIPALS"); s != "" {
+		defIncludePrincipals = s
+	}
+	RootCmd.PersistentFlags().StringVar(
+		&ClientConfig.IncludePrincipals,
+		"include",
+		defIncludePrincipals,
+		"Request only principals matching the glob pattern to be included ($SSH_INSCRIBE_INCLUDE_PRINCIPALS)",
+	)
+
+	var defExcludePrincipals string
+	if s := os.Getenv("SSH_INSCRIBE_EXCLUDE_PRINCIPALS"); s != "" {
+		defExcludePrincipals = s
+	}
+	RootCmd.PersistentFlags().StringVar(
+		&ClientConfig.ExcludePrincipals,
+		"exclude",
+		defExcludePrincipals,
+		"Request only principals not matching the glob pattern to be included ($SSH_INSCRIBE_EXCLUDE_PRINCIPALS)",
+	)
+
+	var defExpire time.Duration
+	if expire := os.Getenv("SSH_INSCRIBE_EXPIRE"); expire != "" {
+		defExpire, _ = time.ParseDuration(expire)
+	}
+	RootCmd.PersistentFlags().DurationVarP(
+		&ClientConfig.CertLifetime,
+		"expire",
+		"e",
+		defExpire,
+		"Request specific lifetime. Example '10m' ($SSH_INSCRIBE_EXPIRE)",
 	)
 }
