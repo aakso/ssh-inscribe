@@ -2,10 +2,8 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"strings"
 
-	"github.com/howeyc/gopass"
+	"github.com/bgentry/speakeasy"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -17,9 +15,8 @@ var cryptCmd = &cobra.Command{
 	Long:  "Make password hash for the authfile backend",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		prompt := "Password to be hashed: "
-		ret, _ := gopass.GetPasswdPrompt(prompt, true, os.Stdin, os.Stderr)
-		fmt.Fprintf(os.Stderr, "\033[F%s%s\n", prompt, strings.Repeat(" ", len(ret)))
-		hash, _ := bcrypt.GenerateFromPassword(ret, bcrypt.DefaultCost)
+		ret, _ := speakeasy.Ask(prompt)
+		hash, _ := bcrypt.GenerateFromPassword([]byte(ret), bcrypt.DefaultCost)
 		fmt.Printf("%s\n", hash)
 		return nil
 	},

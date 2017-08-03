@@ -2,6 +2,12 @@
 
 
 [[projects]]
+  name = "github.com/bgentry/speakeasy"
+  packages = ["."]
+  revision = "4aabc24848ce5fd31929f7d1e4ea74d3709c14cd"
+  version = "v0.1.0"
+
+[[projects]]
   branch = "master"
   name = "github.com/coreos/go-oidc"
   packages = ["."]
@@ -42,12 +48,6 @@
   name = "github.com/golang/protobuf"
   packages = ["proto"]
   revision = "748d386b5c1ea99658fd69fe9f03991ce86a90c1"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/howeyc/gopass"
-  packages = ["."]
-  revision = "bf9dde6d0d2c004a008c27aaee91170c786f6db8"
 
 [[projects]]
   name = "github.com/inconshreveable/mousetrap"
@@ -172,7 +172,7 @@
 [[projects]]
   branch = "master"
   name = "golang.org/x/crypto"
-  packages = ["acme","acme/autocert","bcrypt","blowfish","curve25519","ed25519","ed25519/internal/edwards25519","ssh","ssh/agent","ssh/terminal"]
+  packages = ["acme","acme/autocert","bcrypt","blowfish","curve25519","ed25519","ed25519/internal/edwards25519","ssh","ssh/agent"]
   revision = "358f15eacb587b056fc93273b930314a5cda12fe"
 
 [[projects]]
@@ -232,6 +232,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "6c849462e852530fea2bf40ef4b2b904d4c22e05bd317e6cb2b730c6456b0b43"
+  inputs-digest = "60a58da3f4e0667fd5e46bce4220f8d3168eaa9f42c3f140a370af749a0e352d"
   solver-name = "gps-cdcl"
   solver-version = 1

@@ -20,8 +20,8 @@ import (
 
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/server/signapi/objects"
+	"github.com/bgentry/speakeasy"
 	"github.com/go-resty/resty"
-	"github.com/howeyc/gopass"
 	"github.com/pkg/errors"
 	"github.com/skratchdot/open-golang/open"
 	"golang.org/x/crypto/ssh"
@@ -786,22 +786,26 @@ func openFederatedAuthURL(url string) {
 }
 
 func interactiveCredentialsPrompt(name, realm, credentialType string) []byte {
-	var ret []byte
 	prompt := fmt.Sprintf("Enter %s for %q (%s): ",
 		strings.Title(credentialType),
 		name,
 		realm,
 	)
-	if credentialType == CredentialTypePassword {
-		ret, _ = gopass.GetPasswdPrompt(prompt, true, os.Stdin, os.Stderr)
-		fmt.Fprintf(os.Stderr, "\033[F%s%s\n", prompt, strings.Repeat(" ", len(ret)))
-	} else {
+	switch credentialType {
+	case CredentialTypePassword:
+		if ret, err := speakeasy.FAsk(os.Stderr, prompt); err == nil {
+			return []byte(ret)
+		} else {
+			fmt.Fprintf(os.Stderr, "WARNING: cannot do password prompt: %s\n", err)
+		}
+		fallthrough
+	default:
 		fmt.Fprint(os.Stderr, prompt)
 		reader := bufio.NewReader(os.Stdin)
-		ret, _ = reader.ReadBytes('\n')
+		ret, _ := reader.ReadBytes('\n')
 		ret = ret[:len(ret)-1]
+		return ret
 	}
-	return ret
 }
 
 func iterAgentKeys(agentClient agent.Agent, fn func(key ssh.PublicKey, comment string) error) error {
