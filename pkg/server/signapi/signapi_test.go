@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/auth/backend/authmock"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"

@@ -6,7 +6,7 @@ import (
 	"github.com/aakso/ssh-inscribe/pkg/config"
 	"github.com/aakso/ssh-inscribe/pkg/logging"
 	"github.com/pkg/errors"
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 var Log *logrus.Entry = logging.GetLogger("authfile").WithField("pkg", "auth/backend/authfile")

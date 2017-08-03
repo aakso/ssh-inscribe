@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	authbackend "github.com/aakso/ssh-inscribe/pkg/auth/backend"
 	"github.com/aakso/ssh-inscribe/pkg/config"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"

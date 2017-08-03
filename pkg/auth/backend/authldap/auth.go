@@ -10,7 +10,7 @@ import (
 
 	ldap "gopkg.in/ldap.v2"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/pkg/errors"
 )

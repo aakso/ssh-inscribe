@@ -1,7 +1,7 @@
 package authzfilter
 
 import (
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/gobwas/glob"
 	"github.com/pkg/errors"

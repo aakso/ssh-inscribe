@@ -1,4 +1,4 @@
-// Copyright (c) 2015-2016 Jeevanandam M (jeeva@myjeeva.com), All rights reserved.
+// Copyright (c) 2015-2017 Jeevanandam M (jeeva@myjeeva.com), All rights reserved.
 // resty source code and usage is governed by a MIT style
 // license that can be found in the LICENSE file.
 
@@ -79,8 +79,6 @@ func parseRequestHeader(c *Client, r *Request) error {
 
 	if IsStringEmpty(hdr.Get(hdrUserAgentKey)) {
 		hdr.Set(hdrUserAgentKey, fmt.Sprintf(hdrUserAgentValue, Version))
-	} else {
-		hdr.Set("X-"+hdrUserAgentKey, fmt.Sprintf(hdrUserAgentValue, Version))
 	}
 
 	if IsStringEmpty(hdr.Get(hdrAcceptKey)) && !IsStringEmpty(hdr.Get(hdrContentTypeKey)) {
@@ -249,6 +247,7 @@ func parseResponseBody(c *Client, res *Response) (err error) {
 		if res.StatusCode() > 199 && res.StatusCode() < 300 {
 			if res.Request.Result != nil {
 				err = Unmarshal(ct, res.body, res.Request.Result)
+				return
 			}
 		}
 
@@ -269,7 +268,7 @@ func parseResponseBody(c *Client, res *Response) (err error) {
 }
 
 func handleMultipart(c *Client, r *Request) (err error) {
-	r.bodyBuf = &bytes.Buffer{}
+	r.bodyBuf = getBuffer()
 	w := multipart.NewWriter(r.bodyBuf)
 
 	for k, v := range c.FormData {
@@ -350,7 +349,7 @@ func handleRequestBody(c *Client, r *Request) (err error) {
 	r.bodyBuf = nil
 
 	if reader, ok := r.Body.(io.Reader); ok {
-		r.bodyBuf = &bytes.Buffer{}
+		r.bodyBuf = getBuffer()
 		_, err = r.bodyBuf.ReadFrom(reader)
 	} else if b, ok := r.Body.([]byte); ok {
 		bodyBytes = b
@@ -389,8 +388,7 @@ func saveResponseIntoFile(c *Client, res *Response) error {
 		}
 
 		file = filepath.Clean(file + res.Request.outputFile)
-		err := createDirectory(filepath.Dir(file))
-		if err != nil {
+		if err := createDirectory(filepath.Dir(file)); err != nil {
 			return err
 		}
 

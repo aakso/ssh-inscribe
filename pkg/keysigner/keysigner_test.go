@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Sirupsen/logrus"
 	"github.com/aakso/ssh-inscribe/pkg/logging"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -137,7 +137,7 @@ func testCert() *ssh.Certificate {
 
 func checkCert(cert *ssh.Certificate) error {
 	cc := &ssh.CertChecker{
-		IsAuthority: func(auth ssh.PublicKey) bool {
+		IsUserAuthority: func(auth ssh.PublicKey) bool {
 			if bytes.Equal(auth.Marshal(), testCaPublicParsed.Marshal()) {
 				return true
 			}

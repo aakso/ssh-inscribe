@@ -26,10 +26,10 @@ func (sa *SignApi) RegisterRoutes(g *echo.Group) {
 
 func userPasswordForward(skipper middleware.Skipper) echo.MiddlewareFunc {
 	return middleware.BasicAuthWithConfig(middleware.BasicAuthConfig{
-		Validator: func(user string, pw string, c echo.Context) bool {
+		Validator: func(user string, pw string, c echo.Context) (bool, error) {
 			c.Set("username", user)
 			c.Set("password", pw)
-			return true
+			return true, nil
 		},
 		Skipper: skipper,
 	})

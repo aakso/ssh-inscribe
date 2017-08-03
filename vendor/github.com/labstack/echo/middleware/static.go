@@ -66,17 +66,25 @@ func StaticWithConfig(config StaticConfig) echo.MiddlewareFunc {
 	}
 
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+		return func(c echo.Context) (err error) {
+			if config.Skipper(c) {
+				return next(c)
+			}
+
 			p := c.Request().URL.Path
 			if strings.HasSuffix(c.Path(), "*") { // When serving from a group, e.g. `/static*`.
 				p = c.Param("*")
+			}
+			p, err = echo.PathUnescape(p)
+			if err != nil {
+				return err
 			}
 			name := filepath.Join(config.Root, path.Clean("/"+p)) // "/"+ for security
 
 			fi, err := os.Stat(name)
 			if err != nil {
 				if os.IsNotExist(err) {
-					if config.HTML5 {
+					if config.HTML5 && path.Ext(p) == "" {
 						return c.File(filepath.Join(config.Root, config.Index))
 					}
 					return next(c)
@@ -85,18 +93,20 @@ func StaticWithConfig(config StaticConfig) echo.MiddlewareFunc {
 			}
 
 			if fi.IsDir() {
-				if config.Browse {
-					return listDir(name, c.Response())
-				}
-				name = filepath.Join(name, config.Index)
-				fi, err = os.Stat(name)
+				index := filepath.Join(name, config.Index)
+				fi, err = os.Stat(index)
+
 				if err != nil {
+					if config.Browse {
+						return listDir(name, c.Response())
+					}
 					if os.IsNotExist(err) {
 						return next(c)
 					}
 					return err
 				}
-				return c.File(name)
+
+				return c.File(index)
 			}
 
 			return c.File(name)

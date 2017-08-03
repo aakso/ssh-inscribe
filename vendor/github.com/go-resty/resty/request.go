@@ -5,7 +5,6 @@
 package resty
 
 import (
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"encoding/xml"
@@ -48,13 +47,13 @@ func (r *Request) SetHeader(header, value string) *Request {
 //
 func (r *Request) SetHeaders(headers map[string]string) *Request {
 	for h, v := range headers {
-		r.Header.Set(h, v)
+		r.SetHeader(h, v)
 	}
 
 	return r
 }
 
-// SetQueryParam method sets single paramater and its value in the current request.
+// SetQueryParam method sets single parameter and its value in the current request.
 // It will be formed as query string for the request.
 // Example: `search=kitchen%20papers&size=large` in the URL after `?` mark.
 // 		resty.R().
@@ -63,7 +62,7 @@ func (r *Request) SetHeaders(headers map[string]string) *Request {
 // Also you can override query params value, which was set at client instance level
 //
 func (r *Request) SetQueryParam(param, value string) *Request {
-	r.QueryParam.Add(param, value)
+	r.QueryParam.Set(param, value)
 	return r
 }
 
@@ -79,13 +78,13 @@ func (r *Request) SetQueryParam(param, value string) *Request {
 //
 func (r *Request) SetQueryParams(params map[string]string) *Request {
 	for p, v := range params {
-		r.QueryParam.Add(p, v)
+		r.SetQueryParam(p, v)
 	}
 
 	return r
 }
 
-// SetMultiValueQueryParams method sets multiple parameters with multi-value
+// SetMultiValueQueryParams method appends multiple parameters with multi-value
 // at one go in the current request. It will be formed as query string for the request.
 // Example: `status=pending&status=approved&status=open` in the URL after `?` mark.
 // 		resty.R().
@@ -122,8 +121,8 @@ func (r *Request) SetQueryString(query string) *Request {
 	return r
 }
 
-// SetFormData method sets Form parameters and its values in the current request.
-// It's applicable only HTTP method `POST` and `PUT` and requets content type would be set as
+// SetFormData method sets Form parameters and their values in the current request.
+// It's applicable only HTTP method `POST` and `PUT` and requests content type would be set as
 // `application/x-www-form-urlencoded`.
 // 		resty.R().
 // 			SetFormData(map[string]string{
@@ -134,13 +133,13 @@ func (r *Request) SetQueryString(query string) *Request {
 //
 func (r *Request) SetFormData(data map[string]string) *Request {
 	for k, v := range data {
-		r.FormData.Add(k, v)
+		r.FormData.Set(k, v)
 	}
 
 	return r
 }
 
-// SetMultiValueFormData method sets multiple form parameters with multi-value
+// SetMultiValueFormData method appends multiple form parameters with multi-value
 // at one go in the current request.
 // 		resty.R().
 //			SetMultiValueFormData(url.Values{
@@ -411,23 +410,29 @@ func (r *Request) Execute(method, url string) (*Response, error) {
 
 	var resp *Response
 	attempt := 0
-	_ = Backoff(func() (*Response, error) {
-		attempt++
+	_ = Backoff(
+		func() (*Response, error) {
+			attempt++
 
-		r.URL = r.selectAddr(addrs, url, attempt)
+			r.URL = r.selectAddr(addrs, url, attempt)
 
-		resp, err = r.client.execute(r)
-		if err != nil {
-			r.client.Log.Printf("ERROR [%v] Attempt [%v]", err, attempt)
-			if r.isContextCancelledIfAvailable() {
-				// stop Backoff from retrying request if request has been
-				// canceled by context
-				return resp, nil
+			resp, err = r.client.execute(r)
+			if err != nil {
+				r.client.Log.Printf("ERROR [%v] Attempt [%v]", err, attempt)
+				if r.isContextCancelledIfAvailable() {
+					// stop Backoff from retrying request if request has been
+					// canceled by context
+					return resp, nil
+				}
 			}
-		}
 
-		return resp, err
-	}, Retries(r.client.RetryCount), RetryConditions(r.client.RetryConditions))
+			return resp, err
+		},
+		Retries(r.client.RetryCount),
+		WaitTime(r.client.RetryWaitTime),
+		MaxWaitTime(r.client.RetryMaxWaitTime),
+		RetryConditions(r.client.RetryConditions),
+	)
 
 	return resp, err
 }
@@ -442,36 +447,37 @@ func (r *Request) fmtBodyString() (body string) {
 		}
 
 		// request body data
-		if r.Body != nil {
-			var prtBodyBytes []byte
-			var err error
+		if r.Body == nil {
+			return
+		}
+		var prtBodyBytes []byte
+		var err error
 
-			contentType := r.Header.Get(hdrContentTypeKey)
-			kind := kindOf(r.Body)
-			if IsJSONType(contentType) && (kind == reflect.Struct || kind == reflect.Map) {
-				prtBodyBytes, err = json.MarshalIndent(&r.Body, "", "   ")
-			} else if IsXMLType(contentType) && (kind == reflect.Struct) {
-				prtBodyBytes, err = xml.MarshalIndent(&r.Body, "", "   ")
-			} else if b, ok := r.Body.(string); ok {
-				if IsJSONType(contentType) {
-					bodyBytes := []byte(b)
-					var out bytes.Buffer
-					if err = json.Indent(&out, bodyBytes, "", "   "); err == nil {
-						prtBodyBytes = out.Bytes()
-					}
-				} else {
-					body = b
-					return
+		contentType := r.Header.Get(hdrContentTypeKey)
+		kind := kindOf(r.Body)
+		if canJSONMarshal(contentType, kind) {
+			prtBodyBytes, err = json.MarshalIndent(&r.Body, "", "   ")
+		} else if IsXMLType(contentType) && (kind == reflect.Struct) {
+			prtBodyBytes, err = xml.MarshalIndent(&r.Body, "", "   ")
+		} else if b, ok := r.Body.(string); ok {
+			if IsJSONType(contentType) {
+				bodyBytes := []byte(b)
+				out := getBuffer()
+				defer putBuffer(out)
+				if err = json.Indent(out, bodyBytes, "", "   "); err == nil {
+					prtBodyBytes = out.Bytes()
 				}
-			} else if b, ok := r.Body.([]byte); ok {
-				body = base64.StdEncoding.EncodeToString(b)
+			} else {
+				body = b
+				return
 			}
-
-			if prtBodyBytes != nil && err == nil {
-				body = string(prtBodyBytes)
-			}
+		} else if b, ok := r.Body.([]byte); ok {
+			body = base64.StdEncoding.EncodeToString(b)
 		}
 
+		if prtBodyBytes != nil && err == nil {
+			body = string(prtBodyBytes)
+		}
 	}
 
 	return

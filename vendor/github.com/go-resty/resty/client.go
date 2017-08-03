@@ -5,6 +5,7 @@
 package resty
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -22,6 +23,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -63,24 +65,27 @@ var (
 	xmlCheck  = regexp.MustCompile("(?i:[application|text]/xml)")
 
 	hdrUserAgentValue = "go-resty v%s - https://github.com/go-resty/resty"
+	bufPool           = &sync.Pool{New: func() interface{} { return &bytes.Buffer{} }}
 )
 
 // Client type is used for HTTP/RESTful global values
 // for all request raised from the client
 type Client struct {
-	HostURL         string
-	QueryParam      url.Values
-	FormData        url.Values
-	Header          http.Header
-	UserInfo        *User
-	Token           string
-	Cookies         []*http.Cookie
-	Error           reflect.Type
-	Debug           bool
-	DisableWarn     bool
-	Log             *log.Logger
-	RetryCount      int
-	RetryConditions []RetryConditionFunc
+	HostURL          string
+	QueryParam       url.Values
+	FormData         url.Values
+	Header           http.Header
+	UserInfo         *User
+	Token            string
+	Cookies          []*http.Cookie
+	Error            reflect.Type
+	Debug            bool
+	DisableWarn      bool
+	Log              *log.Logger
+	RetryCount       int
+	RetryWaitTime    time.Duration
+	RetryMaxWaitTime time.Duration
+	RetryConditions  []RetryConditionFunc
 
 	httpClient       *http.Client
 	transport        *http.Transport
@@ -92,6 +97,7 @@ type Client struct {
 	closeConnection  bool
 	beforeRequest    []func(*Client, *Request) error
 	udBeforeRequest  []func(*Client, *Request) error
+	preReqHook       func(*Client, *Request) error
 	afterResponse    []func(*Client, *Response) error
 }
 
@@ -148,7 +154,18 @@ func (c *Client) SetHeaders(headers map[string]string) *Client {
 	return c
 }
 
-// SetCookie method sets a single cookie in the client instance.
+// SetCookieJar method sets custom http.CookieJar in the resty client. Its way to override default.
+// Example: sometimes we don't want to save cookies in api contacting, we can remove the default
+// CookieJar in resty client.
+//
+//		resty.SetCookieJar(nil)
+//
+func (c *Client) SetCookieJar(jar http.CookieJar) *Client {
+	c.httpClient.Jar = jar
+	return c
+}
+
+// SetCookie method appends a single cookie in the client instance.
 // These cookies will be added to all the request raised from this client instance.
 // 		resty.SetCookie(&http.Cookie{
 // 					Name:"go-resty",
@@ -197,7 +214,7 @@ func (c *Client) SetCookies(cs []*http.Cookie) *Client {
 	return c
 }
 
-// SetQueryParam method sets single paramater and its value in the client instance.
+// SetQueryParam method sets single parameter and its value in the client instance.
 // It will be formed as query string for the request. For example: `search=kitchen%20papers&size=large`
 // in the URL after `?` mark. These query params will be added to all the request raised from
 // this client instance. Also it can be overridden at request level Query Param options,
@@ -207,11 +224,11 @@ func (c *Client) SetCookies(cs []*http.Cookie) *Client {
 //			SetQueryParam("size", "large")
 //
 func (c *Client) SetQueryParam(param, value string) *Client {
-	c.QueryParam.Add(param, value)
+	c.QueryParam.Set(param, value)
 	return c
 }
 
-// SetQueryParams method sets multiple parameters and its values at one go in the client instance.
+// SetQueryParams method sets multiple parameters and their values at one go in the client instance.
 // It will be formed as query string for the request. For example: `search=kitchen%20papers&size=large`
 // in the URL after `?` mark. These query params will be added to all the request raised from this
 // client instance. Also it can be overridden at request level Query Param options,
@@ -223,13 +240,13 @@ func (c *Client) SetQueryParam(param, value string) *Client {
 //
 func (c *Client) SetQueryParams(params map[string]string) *Client {
 	for p, v := range params {
-		c.QueryParam.Add(p, v)
+		c.SetQueryParam(p, v)
 	}
 
 	return c
 }
 
-// SetFormData method sets Form parameters and its values in the client instance.
+// SetFormData method sets Form parameters and their values in the client instance.
 // It's applicable only HTTP method `POST` and `PUT` and requets content type would be set as
 // `application/x-www-form-urlencoded`. These form data will be added to all the request raised from
 // this client instance. Also it can be overridden at request level form data, see `resty.R().SetFormData`.
@@ -240,7 +257,7 @@ func (c *Client) SetQueryParams(params map[string]string) *Client {
 //
 func (c *Client) SetFormData(data map[string]string) *Client {
 	for k, v := range data {
-		c.FormData.Add(k, v)
+		c.FormData.Set(k, v)
 	}
 
 	return c
@@ -295,7 +312,7 @@ func (c *Client) R() *Request {
 	return r
 }
 
-// OnBeforeRequest method sets request middleware into the before request chain.
+// OnBeforeRequest method appends request middleware into the before request chain.
 // Its gets applied after default `go-resty` request middlewares and before request
 // been sent from `go-resty` to host server.
 // 		resty.OnBeforeRequest(func(c *resty.Client, r *resty.Request) error {
@@ -310,7 +327,7 @@ func (c *Client) OnBeforeRequest(m func(*Client, *Request) error) *Client {
 	return c
 }
 
-// OnAfterResponse method sets response middleware into the after response chain.
+// OnAfterResponse method appends response middleware into the after response chain.
 // Once we receive response from host server, default `go-resty` response middleware
 // gets applied and then user assigened response middlewares applied.
 // 		resty.OnAfterResponse(func(c *resty.Client, r *resty.Response) error {
@@ -322,6 +339,18 @@ func (c *Client) OnBeforeRequest(m func(*Client, *Request) error) *Client {
 //
 func (c *Client) OnAfterResponse(m func(*Client, *Response) error) *Client {
 	c.afterResponse = append(c.afterResponse, m)
+	return c
+}
+
+// SetPreRequestHook method sets the given pre-request function into resty client.
+// It is called right before the request is fired.
+//
+// Note: Only one pre-request hook can be registered. Use `resty.OnBeforeRequest` for mutilple.
+func (c *Client) SetPreRequestHook(h func(*Client, *Request) error) *Client {
+	if c.preReqHook != nil {
+		c.Log.Printf("Overwriting an existing pre-request hook: %s", functionName(h))
+	}
+	c.preReqHook = h
 	return c
 }
 
@@ -366,6 +395,14 @@ func (c *Client) SetContentLength(l bool) *Client {
 	return c
 }
 
+// SetTimeout method sets timeout for request raised from client.
+//		resty.SetTimeout(time.Duration(1 * time.Minute))
+//
+func (c *Client) SetTimeout(timeout time.Duration) *Client {
+	c.httpClient.Timeout = timeout
+	return c
+}
+
 // SetError method is to register the global or client common `Error` object into go-resty.
 // It is used for automatic unmarshalling if response status code is greater than 399 and
 // content type either JSON or XML. Can be pointer or non-pointer.
@@ -390,14 +427,13 @@ func (c *Client) SetRedirectPolicy(policies ...interface{}) *Client {
 	for _, p := range policies {
 		if _, ok := p.(RedirectPolicy); !ok {
 			c.Log.Printf("ERORR: %v does not implement resty.RedirectPolicy (missing Apply method)",
-				runtime.FuncForPC(reflect.ValueOf(p).Pointer()).Name())
+				functionName(p))
 		}
 	}
 
 	c.httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		for _, p := range policies {
-			err := p.(RedirectPolicy).Apply(req, via)
-			if err != nil {
+			if err := p.(RedirectPolicy).Apply(req, via); err != nil {
 				return err
 			}
 		}
@@ -411,6 +447,22 @@ func (c *Client) SetRedirectPolicy(policies ...interface{}) *Client {
 // to set no. of retry count. Resty uses a Backoff mechanism.
 func (c *Client) SetRetryCount(count int) *Client {
 	c.RetryCount = count
+	return c
+}
+
+// SetRetryWaitTime method sets default wait time to sleep before retrying
+// request.
+// Default is 100 milliseconds.
+func (c *Client) SetRetryWaitTime(waitTime time.Duration) *Client {
+	c.RetryWaitTime = waitTime
+	return c
+}
+
+// SetRetryMaxWaitTime method sets max wait time to sleep before retrying
+// request.
+// Default is 2 seconds.
+func (c *Client) SetRetryMaxWaitTime(maxWaitTime time.Duration) *Client {
+	c.RetryMaxWaitTime = maxWaitTime
 	return c
 }
 
@@ -444,6 +496,7 @@ func (c *Client) SetRESTMode() *Client {
 //		resty.SetRedirectPolicy(FlexibleRedirectPolicy(20))
 //
 func (c *Client) SetMode(mode string) *Client {
+	// HTTP
 	if mode == "http" {
 		c.isHTTPMode = true
 		c.SetRedirectPolicy(FlexibleRedirectPolicy(10))
@@ -451,16 +504,17 @@ func (c *Client) SetMode(mode string) *Client {
 			responseLogger,
 			saveResponseIntoFile,
 		}
-	} else { // RESTful
-		c.isHTTPMode = false
-		c.SetRedirectPolicy(NoRedirectPolicy())
-		c.afterResponse = []func(*Client, *Response) error{
-			responseLogger,
-			parseResponseBody,
-			saveResponseIntoFile,
-		}
+		return c
 	}
 
+	// RESTful
+	c.isHTTPMode = false
+	c.SetRedirectPolicy(NoRedirectPolicy())
+	c.afterResponse = []func(*Client, *Response) error{
+		responseLogger,
+		parseResponseBody,
+		saveResponseIntoFile,
+	}
 	return c
 }
 
@@ -470,7 +524,6 @@ func (c *Client) Mode() string {
 	if c.isHTTPMode {
 		return "http"
 	}
-
 	return "rest"
 }
 
@@ -487,7 +540,6 @@ func (c *Client) Mode() string {
 func (c *Client) SetTLSClientConfig(config *tls.Config) *Client {
 	c.transport.TLSClientConfig = config
 	c.httpClient.Transport = c.transport
-
 	return c
 }
 
@@ -590,7 +642,7 @@ func (c *Client) SetTransport(transport *http.Transport) *Client {
 // 		resty.SetScheme("http")
 //
 func (c *Client) SetScheme(scheme string) *Client {
-	if len(strings.TrimSpace(scheme)) > 0 {
+	if !IsStringEmpty(scheme) {
 		c.scheme = scheme
 	}
 
@@ -611,22 +663,28 @@ func (c *Client) IsProxySet() bool {
 
 // executes the given `Request` object and returns response
 func (c *Client) execute(req *Request) (*Response, error) {
+	defer putBuffer(req.bodyBuf)
 	// Apply Request middleware
 	var err error
 
 	// user defined on before request methods
 	// to modify the *resty.Request object
 	for _, f := range c.udBeforeRequest {
-		err = f(c, req)
-		if err != nil {
+		if err = f(c, req); err != nil {
 			return nil, err
 		}
 	}
 
 	// resty middlewares
 	for _, f := range c.beforeRequest {
-		err = f(c, req)
-		if err != nil {
+		if err = f(c, req); err != nil {
+			return nil, err
+		}
+	}
+
+	// call pre-request if defined
+	if c.preReqHook != nil {
+		if err = c.preReqHook(c, req); err != nil {
 			return nil, err
 		}
 	}
@@ -648,8 +706,8 @@ func (c *Client) execute(req *Request) (*Response, error) {
 		defer func() {
 			_ = resp.Body.Close()
 		}()
-		response.body, err = ioutil.ReadAll(resp.Body)
-		if err != nil {
+
+		if response.body, err = ioutil.ReadAll(resp.Body); err != nil {
 			return response, err
 		}
 
@@ -658,8 +716,7 @@ func (c *Client) execute(req *Request) (*Response, error) {
 
 	// Apply Response middleware
 	for _, f := range c.afterResponse {
-		err = f(c, response)
-		if err != nil {
+		if err = f(c, response); err != nil {
 			break
 		}
 	}
@@ -823,4 +880,23 @@ func createDirectory(dir string) (err error) {
 		}
 	}
 	return
+}
+
+func canJSONMarshal(contentType string, kind reflect.Kind) bool {
+	return IsJSONType(contentType) && (kind == reflect.Struct || kind == reflect.Map)
+}
+
+func functionName(i interface{}) string {
+	return runtime.FuncForPC(reflect.ValueOf(i).Pointer()).Name()
+}
+
+func getBuffer() *bytes.Buffer {
+	return bufPool.Get().(*bytes.Buffer)
+}
+
+func putBuffer(buf *bytes.Buffer) {
+	if buf != nil {
+		buf.Reset()
+		bufPool.Put(buf)
+	}
 }

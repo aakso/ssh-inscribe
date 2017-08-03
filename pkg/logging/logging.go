@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/Sirupsen/logrus"
-	syslog2 "github.com/Sirupsen/logrus/hooks/syslog"
+	"github.com/sirupsen/logrus"
+	syslog2 "github.com/sirupsen/logrus/hooks/syslog"
 	"github.com/aakso/ssh-inscribe/pkg/config"
 	"github.com/pkg/errors"
 )
