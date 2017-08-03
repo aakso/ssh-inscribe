@@ -13,8 +13,10 @@ import (
 )
 
 var RootCmd = &cobra.Command{
-	Use:   "sshi",
-	Short: "sshi connects to ssh-inscribed for SSH certificate generation",
+	Use:           "sshi",
+	Short:         "sshi connects to ssh-inscribed for SSH certificate generation",
+	SilenceErrors: true,
+	SilenceUsage:  true,
 }
 var ClientConfig = &client.Config{
 	UseAgent: true,
