@@ -19,9 +19,11 @@ var RootCmd = &cobra.Command{
 	SilenceUsage:  true,
 }
 var ClientConfig = &client.Config{
-	UseAgent: true,
-	Timeout:  2 * time.Second,
-	Retries:  3,
+	UseAgent:            true,
+	Timeout:             2 * time.Second,
+	Retries:             3,
+	GenerateKeypairType: "rsa",
+	GenerateKeypairSize: 2048,
 }
 var logLevel = "info"
 
@@ -73,10 +75,9 @@ func init() {
 	if expire := os.Getenv("SSH_INSCRIBE_TIMEOUT"); expire != "" {
 		defTimeout, _ = time.ParseDuration(expire)
 	}
-	RootCmd.PersistentFlags().DurationVarP(
+	RootCmd.PersistentFlags().DurationVar(
 		&ClientConfig.Timeout,
 		"timeout",
-		"t",
 		defTimeout,
 		"Client timeout ($SSH_INSCRIBE_TIMEOUT)",
 	)
@@ -177,5 +178,28 @@ func init() {
 		"e",
 		defExpire,
 		"Request specific lifetime. Example '10m' ($SSH_INSCRIBE_EXPIRE)",
+	)
+
+	if kt := os.Getenv("SSH_INSCRIBE_GENKEY_TYPE"); kt != "" {
+		ClientConfig.GenerateKeypairType = kt
+	}
+	RootCmd.PersistentFlags().StringVarP(
+		&ClientConfig.GenerateKeypairType,
+		"keytype",
+		"t",
+		ClientConfig.GenerateKeypairType,
+		"Set ad-hoc keypair type. Valid values: rsa, ed25519 ($SSH_INSCRIBE_GENKEY_TYPE)",
+	)
+
+	if ks := os.Getenv("SSH_INSCRIBE_GENKEY_SIZE"); ks != "" {
+		size, _ := strconv.ParseInt(ks, 10, 0)
+		ClientConfig.GenerateKeypairSize = int(size)
+	}
+	RootCmd.PersistentFlags().IntVarP(
+		&ClientConfig.GenerateKeypairSize,
+		"keysize",
+		"b",
+		ClientConfig.GenerateKeypairSize,
+		"Set ad-hoc keypair size. Only valid for RSA keytype ($SSH_INSCRIBE_GENKEY_SIZE)",
 	)
 }

@@ -6,8 +6,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -18,8 +16,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aakso/ssh-inscribe/pkg/globals"
+	"golang.org/x/crypto/ed25519"
 
+	"github.com/aakso/ssh-inscribe/pkg/globals"
+	"github.com/labstack/gommon/log"
+
+	"github.com/ScaleFT/sshkeys"
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/server/signapi/objects"
 	"github.com/bgentry/speakeasy"
@@ -42,6 +44,8 @@ const (
 	AgentComment = "ssh-inscribe managed"
 
 	FederatedAuthenticatorPollInterval = 3
+
+	DefaultGenerateKeypairSize = 2048
 )
 
 const spinner = `\|/-`
@@ -214,20 +218,20 @@ func (c *Client) addCAKey() error {
 	if err != nil {
 		return errors.Wrap(err, "could not open ca key file")
 	}
-	dec, _ := pem.Decode(content)
-	if dec == nil {
-		return errors.New("could not parse ca key file")
+	key, err := c.parsePrivateKey(content, "CA private key")
+	if err != nil {
+		return errors.Wrap(err, "could not parse ca key")
 	}
-	if strings.Contains(dec.Headers["Proc-Type"], "ENCRYPTED") {
-		secret := c.getCredential("ca private key", c.Config.CAKeyFile, CredentialTypePassword)
-		dec.Bytes, err = x509.DecryptPEMBlock(dec, secret)
-		if err != nil {
-			return errors.Wrap(err, "could not decrypt ca key")
-		}
-		delete(dec.Headers, "Proc-Type")
-		content = pem.EncodeToMemory(dec)
-	} else {
-		log.Warn("WARNING: CA Key file is unencrypted!")
+	opts := &sshkeys.MarshalOptions{}
+	switch key.(type) {
+	case ed25519.PrivateKey:
+		opts.Format = sshkeys.FormatOpenSSHv1
+	default:
+		opts.Format = sshkeys.FormatClassicPEM
+	}
+	content, err = sshkeys.Marshal(key, opts)
+	if err != nil {
+		return errors.Wrap(err, "could not marshal ca key")
 	}
 	log.Debug("sending ca key to the server")
 	res, err := c.newReq().
@@ -245,15 +249,33 @@ func (c *Client) addCAKey() error {
 }
 
 // Generate ad-hoc keypair
-// TODO: add ec key support
 func (c *Client) generate() error {
-	log := Log.WithField("action", "generate")
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return errors.Wrap(err, "could not generate key")
+	var (
+		key interface{}
+		err error
+	)
+	log := Log.WithField("action", "generate").
+		WithField("type", c.Config.GenerateKeypairType)
+	size := c.Config.GenerateKeypairSize
+	if size == 0 {
+		size = DefaultGenerateKeypairSize
 	}
-	c.userPrivateKey = key
+	switch strings.ToLower(c.Config.GenerateKeypairType) {
+	case "rsa":
+		log = log.WithField("size", size)
+		key, err = rsa.GenerateKey(rand.Reader, size)
+		if err != nil {
+			return errors.Wrap(err, "could not generate RSA key")
+		}
+	case "ed25519":
+		log = log.WithField("size", ed25519.PrivateKeySize)
+		_, key, err = ed25519.GenerateKey(rand.Reader)
+		if err != nil {
+			return errors.Wrap(err, "could not generate RSA key")
+		}
+	}
 	log.Debug("generated keypair")
+	c.userPrivateKey = key
 	return nil
 }
 
@@ -285,8 +307,16 @@ func (c *Client) storeInAgent() error {
 	if c.userCert.ValidBefore != 0 {
 		lifetime = uint32(time.Until(time.Unix(int64(c.userCert.ValidBefore), 0)).Seconds())
 	}
+	// We need to pass pointer to the byte slice when adding ed25519 key
+	var pkey interface{}
+	switch key := c.userPrivateKey.(type) {
+	case ed25519.PrivateKey:
+		pkey = &key
+	default:
+		pkey = c.userPrivateKey
+	}
 	addedKey := agent.AddedKey{
-		PrivateKey:   c.userPrivateKey,
+		PrivateKey:   pkey,
 		Certificate:  c.userCert,
 		Comment:      AgentComment,
 		LifetimeSecs: lifetime,
@@ -299,7 +329,7 @@ func (c *Client) storeInAgent() error {
 
 	if !keyInAgent {
 		addedKey = agent.AddedKey{
-			PrivateKey:   c.userPrivateKey,
+			PrivateKey:   pkey,
 			Comment:      AgentComment,
 			LifetimeSecs: lifetime,
 		}
@@ -334,20 +364,25 @@ func (c *Client) storeInFile() error {
 		}
 		// Save private
 		log.WithField("file", privFile).Debug("saving to file")
-		rsaKey, _ := c.userPrivateKey.(*rsa.PrivateKey)
-		if rsaKey == nil {
-			return errors.New("not a rsa key")
-		}
-		pemBlock := &pem.Block{
-			Type:  "RSA PRIVATE KEY",
-			Bytes: x509.MarshalPKCS1PrivateKey(rsaKey),
-		}
 		fhPriv, err := os.OpenFile(c.Config.IdentityFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			return errors.Wrap(err, "could not save to file")
 		}
 		defer fhPriv.Close()
-		pem.Encode(fhPriv, pemBlock)
+		opts := &sshkeys.MarshalOptions{}
+		switch c.userPrivateKey.(type) {
+		case ed25519.PrivateKey:
+			opts.Format = sshkeys.FormatOpenSSHv1
+		default:
+			opts.Format = sshkeys.FormatClassicPEM
+		}
+		content, err := sshkeys.Marshal(c.userPrivateKey, opts)
+		if err != nil {
+			return errors.Wrap(err, "could not marshal private key")
+		}
+		if _, err := fhPriv.Write(content); err != nil {
+			return errors.Wrap(err, "could not write private key")
+		}
 		fmt.Println(privFile)
 		log.WithField("file", privFile).Debug("saved to file")
 
@@ -362,11 +397,13 @@ func (c *Client) storeInFile() error {
 			return errors.Wrap(err, "could not save to file")
 		}
 		defer fhPub.Close()
-		pub, err := ssh.NewPublicKey(rsaKey.Public())
+		signer, err := ssh.NewSignerFromKey(c.userPrivateKey)
 		if err != nil {
 			return errors.Wrap(err, "unexpected error")
 		}
-		fhPub.Write(ssh.MarshalAuthorizedKey(pub))
+		if _, err := fhPub.Write(ssh.MarshalAuthorizedKey(signer.PublicKey())); err != nil {
+			return errors.Wrap(err, "could not write public key")
+		}
 		fmt.Println(pubFile)
 		log.WithField("file", pubFile).Debug("saved to file")
 	}
@@ -549,6 +586,32 @@ func (c *Client) authenticate() error {
 	return nil
 }
 
+// Parse private key and decrypt it if necessary
+func (c *Client) parsePrivateKey(raw []byte, desc string) (interface{}, error) {
+	var (
+		// TODO: implement IsPrivateKeyEncrypted or similar functionality to ScaleFT/sshkeys
+		secret []byte = []byte(" ")
+		key    interface{}
+		err    error
+	)
+	haveSecret := false
+outer:
+	for {
+		key, err = sshkeys.ParseEncryptedRawPrivateKey(raw, secret)
+		switch {
+		case err == sshkeys.ErrIncorrectPassword && !haveSecret:
+			log.Debug("encrypted identity file")
+			secret = c.getCredential("private key", desc, CredentialTypePassword)
+			haveSecret = true
+		case err == nil:
+			break outer
+		default:
+			return nil, err
+		}
+	}
+	return key, nil
+}
+
 // Discover users private key and certificate from file
 func (c *Client) discoverIdentityFile() error {
 	log := Log.WithField("action", "discoverIdentityFile")
@@ -557,21 +620,7 @@ func (c *Client) discoverIdentityFile() error {
 	if err != nil {
 		return errors.Wrap(err, "could not open identity file")
 	}
-	dec, _ := pem.Decode(content)
-	if dec == nil {
-		return errors.New("could not parse identity file")
-	}
-	if strings.Contains(dec.Headers["Proc-Type"], "ENCRYPTED") {
-		log.Debug("encrypted identity file")
-		secret := c.getCredential("private key", c.Config.IdentityFile, CredentialTypePassword)
-		dec.Bytes, err = x509.DecryptPEMBlock(dec, secret)
-		if err != nil {
-			return errors.Wrap(err, "could not decrypt private key")
-		}
-		delete(dec.Headers, "Proc-Type")
-		content = pem.EncodeToMemory(dec)
-	}
-	key, err := ssh.ParseRawPrivateKey(content)
+	key, err := c.parsePrivateKey(content, c.Config.IdentityFile)
 	if err != nil {
 		return errors.Wrap(err, "could not parse private key")
 	}

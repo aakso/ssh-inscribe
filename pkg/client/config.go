@@ -18,6 +18,12 @@ type Config struct {
 	// Generate ad-hoc keypair
 	GenerateKeypair bool
 
+	// Generated key type, valid: rsa, ed25519
+	GenerateKeypairType string
+
+	// Generated key size, only valid for rsa
+	GenerateKeypairSize int
+
 	// Write certificate to <IdentityFile>-cert.pub
 	WriteCert bool
 

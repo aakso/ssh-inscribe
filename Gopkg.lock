@@ -2,6 +2,12 @@
 
 
 [[projects]]
+  branch = "master"
+  name = "github.com/ScaleFT/sshkeys"
+  packages = ["."]
+  revision = "9ceda063776936be34c8ab745623a1483ac7b35c"
+
+[[projects]]
   name = "github.com/bgentry/speakeasy"
   packages = ["."]
   revision = "4aabc24848ce5fd31929f7d1e4ea74d3709c14cd"
@@ -24,6 +30,12 @@
   packages = ["spew"]
   revision = "346938d642f2ec3594ed81d874461961cd0faa76"
   version = "v1.1.0"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/dchest/bcrypt_pbkdf"
+  packages = ["."]
+  revision = "83f37f9c154a678179d11e218bff73ebe5717f99"
 
 [[projects]]
   name = "github.com/dgrijalva/jwt-go"
@@ -238,6 +250,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "11eefb173f9f137ec42877eda0af12e84c56234d12387e3965baaa2dfac06f8e"
+  inputs-digest = "6c8438161938d6812184a29fa038e8c54de782ec1b8f74d296cb9fb2921f9b58"
   solver-name = "gps-cdcl"
   solver-version = 1
