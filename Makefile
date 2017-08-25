@@ -47,11 +47,16 @@ $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH):
 		-ldflags '\
 			-X github.com/aakso/ssh-inscribe/pkg/globals.varDir=$(PKG_VARDIR) \
 			-X github.com/aakso/ssh-inscribe/pkg/globals.confDir=/$(PKG_ETC) \
+			-X github.com/aakso/ssh-inscribe/pkg/globals.version=$(PKG_VERSION) \
 		' \
 		-o $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH) main.go
 
 $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH):
-	GOOS=$(PKG_OS) go build -o $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH) cliclient/sshi/main.go
+	GOOS=$(PKG_OS) go build \
+		-ldflags '\
+			-X github.com/aakso/ssh-inscribe/pkg/globals.version=$(PKG_VERSION) \
+		' \
+		-o $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH) cliclient/sshi/main.go
 
 .PHONY: linux
 linux:

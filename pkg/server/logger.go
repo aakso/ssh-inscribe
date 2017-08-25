@@ -5,13 +5,14 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/labstack/echo"
+	"github.com/sirupsen/logrus"
 )
 
-func RequestLogger(log *logrus.Entry) echo.MiddlewareFunc {
+func RequestLogger(lf logrus.Fields) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
+			log := Log.WithFields(lf)
 			req := c.Request()
 			resp := c.Response()
 			start := time.Now()
@@ -27,6 +28,8 @@ func RequestLogger(log *logrus.Entry) echo.MiddlewareFunc {
 			}
 
 			log = log.
+				WithField("client", req.Header.Get("User-Agent")).
+				WithField("client_version", req.Header.Get("X-Version")).
 				WithField("remote_address", ra).
 				WithField("remote_port", port).
 				WithField("url", req.URL).

@@ -18,9 +18,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aakso/ssh-inscribe/pkg/globals"
+
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/server/signapi/objects"
 	"github.com/bgentry/speakeasy"
+	"github.com/blang/semver"
 	"github.com/go-resty/resty"
 	"github.com/pkg/errors"
 	"github.com/skratchdot/open-golang/open"
@@ -61,6 +64,7 @@ type Client struct {
 	userPrivateKey interface{}
 	userCert       *ssh.Certificate
 	signerToken    []byte
+	serverVersion  *semver.Version
 }
 
 func (c *Client) getCredential(name, realm, credentialType string) []byte {
@@ -74,6 +78,9 @@ func (c *Client) AddCA() error {
 	if err := c.initREST(); err != nil {
 		return errors.Wrap(err, "could not add ca")
 	}
+	if err := c.checkVersion(); err != nil {
+		return errors.Wrap(err, "could not add ca")
+	}
 	if err := c.authenticate(); err != nil {
 		return errors.Wrap(err, "could not add ca")
 	}
@@ -84,10 +91,26 @@ func (c *Client) GetCA() (ssh.PublicKey, error) {
 	if err := c.initREST(); err != nil {
 		return nil, errors.Wrap(err, "could not get ca")
 	}
+	if err := c.checkVersion(); err != nil {
+		return nil, errors.Wrap(err, "could not get ca")
+	}
 	if err := c.discoverCA(); err != nil {
 		return nil, errors.Wrap(err, "could not get ca")
 	}
 	return c.ca, nil
+}
+
+func (c *Client) GetServerVersion() (semver.Version, error) {
+	if err := c.initREST(); err != nil {
+		return semver.Version{}, errors.Wrap(err, "could not get server version")
+	}
+	if err := c.discoverServerVersion(); err != nil {
+		return semver.Version{}, errors.Wrap(err, "could not get server version")
+	}
+	if c.serverVersion == nil {
+		return semver.Version{}, errors.New("no server version available")
+	}
+	return *c.serverVersion, nil
 }
 
 func (c *Client) GetAuthenticators() ([]objects.DiscoverResult, error) {
@@ -99,6 +122,9 @@ func (c *Client) GetAuthenticators() ([]objects.DiscoverResult, error) {
 
 func (c *Client) Logout() error {
 	if err := c.initREST(); err != nil {
+		return errors.Wrap(err, "could not logout")
+	}
+	if err := c.checkVersion(); err != nil {
 		return errors.Wrap(err, "could not logout")
 	}
 	if err := c.discoverCA(); err != nil {
@@ -117,6 +143,9 @@ func (c *Client) Logout() error {
 
 func (c *Client) Login() error {
 	if err := c.initREST(); err != nil {
+		return errors.Wrap(err, "could not login")
+	}
+	if err := c.checkVersion(); err != nil {
 		return errors.Wrap(err, "could not login")
 	}
 	if err := c.discoverCA(); err != nil {
@@ -596,6 +625,67 @@ func (c *Client) discoverCA() error {
 	return nil
 }
 
+func (c *Client) discoverServerVersion() error {
+	log := Log.WithField("action", "discoverServerVersion")
+	log.Debug("query server version")
+	res, err := c.newReq().Get("/version")
+	if err != nil {
+		return errors.Wrap(err, "could not get server version")
+	}
+	if res.StatusCode() != http.StatusOK {
+		log.Debug("no version endpoint available, ignoring")
+		return nil
+	}
+	ver, err := semver.Parse(string(res.Body()))
+	if err != nil {
+		return errors.Wrap(err, "could not parse server version")
+	}
+	c.serverVersion = &ver
+	return nil
+}
+
+func (c *Client) checkVersion() error {
+	var sver semver.Version
+	unknownVer := semver.MustParse("0.0.0-unknown")
+	log := Log.WithField("action", "checkVersion")
+	log = log.WithField("client_version", globals.Version())
+	if c.serverVersion == nil {
+		if err := c.discoverServerVersion(); err != nil {
+			return errors.Wrap(err, "could not validate server version")
+		}
+		if c.serverVersion == nil {
+			sver = semver.MustParse("0.0.0-unknown")
+		} else {
+			sver = *c.serverVersion
+		}
+	}
+	log = log.WithField("server_version", sver)
+
+	if unknownVer.EQ(sver) {
+		log.Info("Server version is unknown. Things should work but notify your administrator about this")
+		return nil
+	}
+
+	if globals.IsSnapshotVersion(sver) || globals.IsSnapshotVersion(globals.Version()) {
+		log.Debug("you are running a development version. Skipping version checks")
+		return nil
+	}
+
+	if sver.Major != globals.Version().Major {
+		log.Error("major version mismatch. Expect errors to happen")
+		return nil
+	}
+
+	if sver.GT(globals.Version()) {
+		log.Info("server is running a newer version. Consider installing an updated client")
+	}
+
+	if globals.Version().GT(sver) {
+		log.Info("client version is newer. Things should work but notify your administrator about this")
+	}
+	return nil
+}
+
 // Connect to ssh-agent if possible
 func (c *Client) connectAgent() error {
 	sock := os.Getenv("SSH_AUTH_SOCK")
@@ -675,6 +765,20 @@ func (c *Client) deleteCertsFromAgent() error {
 	return nil
 }
 
+func (c *Client) checkReady() error {
+	log := Log.WithField("action", "checkReady").
+		WithField("target", c.rest.HostURL)
+	log.Debug("query server readiness")
+	res, err := c.newReq().Get(c.urlFor("ready"))
+	if err != nil {
+		return errors.Wrap(err, "could not check readiness")
+	}
+	if res.StatusCode() != http.StatusNoContent {
+		return errors.Errorf("got code %d and message: %s", res.StatusCode(), res.Body())
+	}
+	return nil
+}
+
 func (c *Client) initREST() error {
 	log := Log.WithField("action", "initREST")
 	if c.Config.URL == "" {
@@ -707,20 +811,30 @@ func (c *Client) initREST() error {
 		log.Warn("You should really not use unencrypted connection")
 	}
 
-	if name, _, err := net.LookupSRV(parsed.Scheme, "tcp", parsed.Hostname()); err == nil {
-		c.restSRV = &resty.SRVRecord{
-			Service: parsed.Scheme,
-			Domain:  parsed.Hostname(),
-		}
-		log.WithField("SRV", name).Debug("discovering with SRV records")
-	}
-
-	rest.Header.Set("User-Agent", "ssh-inscribe")
+	rest.Header.Set("User-Agent", globals.ClientUserAgent)
+	rest.Header.Set("X-Version", globals.Version().String())
 	if c.Config.Debug {
 		rest.SetDebug(true).
 			SetLogger(os.Stderr)
 	}
 	c.rest = rest
+
+	// Let's not use Resty's SRV mechanism as we need to be connected to the same server for
+	// the duration of the session to make federated auth work.
+	if name, addrs, err := net.LookupSRV(parsed.Scheme, "tcp", parsed.Hostname()); err == nil {
+		log.WithField("SRV", name).Debug("discovering with SRV records")
+		for _, addr := range addrs {
+			parsed.Host = fmt.Sprintf("%s:%d", addr.Target, addr.Port)
+			rest.SetHostURL(parsed.String())
+			log := log.WithField("target", parsed.String())
+			if err := c.checkReady(); err != nil {
+				log.WithError(err).Debug("skipping")
+			} else {
+				break
+			}
+		}
+	}
+
 	return nil
 }
 

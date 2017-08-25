@@ -7,7 +7,8 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/aakso/ssh-inscribe/pkg/globals"
+
 	authbackend "github.com/aakso/ssh-inscribe/pkg/auth/backend"
 	"github.com/aakso/ssh-inscribe/pkg/config"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"
@@ -16,6 +17,7 @@ import (
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type Server struct {
@@ -28,13 +30,14 @@ type Server struct {
 
 func (s *Server) Start() error {
 	var err error
+	log := Log.WithField("server_version", globals.Version())
 	s.web.Logger.SetOutput(ioutil.Discard)
 	certFile, keyFile := s.config.TLSCertFile, s.config.TLSKeyFile
 	if certFile != "" && keyFile != "" {
-		Log.WithField("listen", fmt.Sprintf("https://%s", s.config.Listen)).Info("server starting")
+		log.WithField("listen", fmt.Sprintf("https://%s", s.config.Listen)).Info("server starting")
 		err = s.web.StartTLS(s.config.Listen, certFile, keyFile)
 	} else {
-		Log.WithField("listen", fmt.Sprintf("http://%s", s.config.Listen)).Warn("server starting without TLS")
+		log.WithField("listen", fmt.Sprintf("http://%s", s.config.Listen)).Warn("server starting without TLS")
 		err = s.web.Start(s.config.Listen)
 	}
 	if err != nil {
@@ -44,12 +47,13 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) initApi() {
-	s.web.Use(RecoverHandler(Log))
+	s.web.Use(RecoverHandler(Log.Data))
 	s.web.HTTPErrorHandler = errorHandler
-	s.web.Use(RequestLogger(Log))
+	s.web.Use(RequestLogger(Log.Data))
 	s.web.Use(middleware.BodyLimit("1M"))
 	g := s.web.Group("/v1")
 	s.signapi.RegisterRoutes(g)
+	s.web.GET("/version", handleVersion)
 }
 
 func Build() (*Server, error) {
@@ -125,6 +129,10 @@ func Build() (*Server, error) {
 	return s, nil
 }
 
+func handleVersion(c echo.Context) error {
+	return c.String(http.StatusOK, fmt.Sprint(globals.Version()))
+}
+
 // Simplified version of the standard echo's errorhandler
 func errorHandler(err error, c echo.Context) {
 	var (
@@ -147,12 +155,13 @@ func errorHandler(err error, c echo.Context) {
 }
 
 // Simplified version of the echo's recover handler with support for logrus logging
-func RecoverHandler(log *logrus.Entry) echo.MiddlewareFunc {
+func RecoverHandler(lf logrus.Fields) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			defer func() {
 				if r := recover(); r != nil {
 					var err error
+					log := Log.WithFields(lf)
 					switch r := r.(type) {
 					case error:
 						err = r
