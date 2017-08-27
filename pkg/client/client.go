@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -37,6 +38,8 @@ const (
 	CredentialTypeUser     = "username"
 	CredentialTypePassword = "password"
 	CredentialTypePin      = "pin"
+
+	HeaderChallenge = "X-Auth-Challenge"
 
 	CurrentApiVersion = "v1"
 
@@ -167,7 +170,7 @@ func (c *Client) Login() error {
 			return nil
 		}
 	}
-	if c.Config.IdentityFile != "" && !c.Config.GenerateKeypair {
+	if c.Config.IdentityFile != "" {
 		if err := c.discoverIdentityFile(); err != nil {
 			return errors.Wrap(err, "could not login")
 		}
@@ -496,6 +499,39 @@ func (c *Client) authenticateFederated(authName, authRealm string) error {
 	return errors.New("could not authenticate")
 }
 
+func (c *Client) getChallengeResponse(authName, authRealm string) ([]byte, error) {
+	log := Log.WithField("action", "getChallengeResponse").
+		WithField("authenticator", authName)
+	log.Debug("making initial authentication request to get the challenge")
+	req := c.newReq()
+	if c.signerToken != nil {
+		req.SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken))
+	}
+	req.SetBasicAuth("", "")
+	res, err := req.Post(c.urlFor("auth/" + authName))
+	if err != nil {
+		return nil, errors.Wrap(err, "could not authenticate")
+	}
+	if res.StatusCode() != http.StatusUnauthorized {
+		return nil, errors.Errorf("unexpected reply, got code %d and message: %s", res.StatusCode(), res.Body())
+	}
+	c.signerToken = res.Body()
+	challenge := res.Header().Get(HeaderChallenge)
+	signer, err := ssh.NewSignerFromKey(c.userPrivateKey)
+	if err != nil {
+		return nil, err
+	}
+	sig, err := signer.Sign(rand.Reader, []byte(challenge))
+	if err != nil {
+		return nil, err
+	}
+	response, err := json.Marshal(sig)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
 func (c *Client) discoverAuthenticators() ([]objects.DiscoverResult, error) {
 	log := Log.WithField("action", "discoverAuthenticators")
 	log.Debug("discovering authenticators")
@@ -559,6 +595,13 @@ func (c *Client) authenticate() error {
 		case auth.CredentialUserPassword:
 			user = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypeUser))
 			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePassword))
+		case auth.CredentialSSHPublicKey:
+			user = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypeUser))
+			if v, err := c.getChallengeResponse(au.AuthenticatorName, au.AuthenticatorRealm); err != nil {
+				return err
+			} else {
+				secret = string(v)
+			}
 		case auth.CredentialPin:
 			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePin))
 		case auth.CredentialFederated:

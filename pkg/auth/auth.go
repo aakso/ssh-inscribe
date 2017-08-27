@@ -4,9 +4,11 @@ const (
 	CredentialUserPassword = "user_password"
 	CredentialPin          = "pin"
 	CredentialFederated    = "federated"
+	CredentialSSHPublicKey = "ssh_public_key"
 
 	MetaAuditID           = "audit_id"
 	MetaFederationAuthURL = "federation_auth_url"
+	MetaChallenge         = "challenge"
 )
 
 type Authenticator interface {

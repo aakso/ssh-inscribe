@@ -64,6 +64,15 @@ func ignoreFlagsAfter(cmds ...string) {
 
 func init() {
 	cobra.OnInitialize(rootInit)
+
+	RootCmd.PersistentFlags().StringVarP(
+		&ClientConfig.IdentityFile,
+		"identity",
+		"i",
+		os.Getenv("SSH_INSCRIBE_IDENTITY"),
+		"Identity (private key) file location ($SSH_INSCRIBE_IDENTITY)",
+	)
+
 	RootCmd.PersistentFlags().StringVar(
 		&ClientConfig.URL,
 		"url",

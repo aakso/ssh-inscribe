@@ -2,15 +2,20 @@ package authfile
 
 import (
 	"bytes"
+	"encoding/json"
 	"io/ioutil"
+	"strings"
 
-	yaml "gopkg.in/yaml.v2"
+	"github.com/ghodss/yaml"
+
+	"golang.org/x/crypto/ssh"
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/sirupsen/logrus"
 	"github.com/aakso/ssh-inscribe/pkg/auth"
+	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type AuthFile struct {
@@ -40,7 +45,83 @@ func (fa *AuthFile) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 	if creds == nil {
 		return nil, false
 	}
-	log := fa.log.WithField("action", "authenticate")
+	switch fa.CredentialType() {
+	case auth.CredentialSSHPublicKey:
+		return fa.authenticateWithSSHKey(pctx, creds)
+	default:
+		return fa.authenticateWithPassword(pctx, creds)
+	}
+}
+
+func (fa *AuthFile) authenticateWithSSHKey(pctx *auth.AuthContext, creds *auth.Credentials) (*auth.AuthContext, bool) {
+	log := fa.log.WithField("action", "authenticateWithSSHKey")
+
+	meta := creds.Meta
+	if meta == nil {
+		meta = map[string]interface{}{}
+	}
+
+	if v, ok := meta[auth.MetaAuditID]; ok {
+		log = log.WithField(auth.MetaAuditID, v)
+	}
+
+	startFlow := func() (*auth.AuthContext, bool) {
+		meta[auth.MetaChallenge] = util.RandB64(32)
+		return &auth.AuthContext{
+			Status:        auth.StatusPending,
+			Parent:        pctx,
+			Authenticator: fa.Name(),
+			AuthMeta:      meta,
+		}, true
+	}
+	completeFlow := func() (*auth.AuthContext, bool) {
+		log = log.WithField("user", creds.UserIdentifier)
+		entry, ok := fa.users[creds.UserIdentifier]
+		if !ok {
+			log.Info("user not found")
+			return nil, false
+		}
+		sig := &ssh.Signature{}
+		if err := json.Unmarshal(creds.Secret, sig); err != nil {
+			log.WithError(err).Error("cannot parse signature")
+			return nil, false
+		}
+		pubkey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(entry.PublicKey))
+		if err != nil {
+			log.WithError(err).Error("cannot parse public key")
+			return nil, false
+		}
+		if err := pubkey.Verify([]byte(pctx.GetMetaString(auth.MetaChallenge)), sig); err != nil {
+			log.WithError(err).Error("signature verify error")
+			return nil, false
+		}
+		pctx.Status = auth.StatusCompleted
+		pctx.SubjectName = entry.Name
+		pctx.Principals = entry.Principals
+		pctx.CriticalOptions = entry.CriticalOptions
+		pctx.Extensions = entry.Extensions
+		pctx.Authenticator = fa.Name()
+		pctx.AuthMeta = meta
+		return pctx, true
+	}
+
+	if pctx == nil {
+		fa.log.Debug("no actx, start new flow")
+		return startFlow()
+	}
+
+	if pctx.Authenticator == fa.Name() {
+		fa.log.Debug("completing flow")
+		return completeFlow()
+	}
+
+	fa.log.Debug("mfa, starting new flow")
+	return startFlow()
+
+}
+
+func (fa *AuthFile) authenticateWithPassword(pctx *auth.AuthContext, creds *auth.Credentials) (*auth.AuthContext, bool) {
+	log := fa.log.WithField("action", "authenticateWithPassword")
 
 	if v, ok := creds.Meta[auth.MetaAuditID]; ok {
 		log = log.WithField(auth.MetaAuditID, v)
@@ -92,7 +173,12 @@ func (fa *AuthFile) Realm() string {
 }
 
 func (fa *AuthFile) CredentialType() string {
-	return auth.CredentialUserPassword
+	switch strings.ToLower(fa.config.CredentialType) {
+	case "sshkey":
+		return auth.CredentialSSHPublicKey
+	default:
+		return auth.CredentialUserPassword
+	}
 }
 
 func New(config *Config) (*AuthFile, error) {
@@ -104,6 +190,12 @@ func New(config *Config) (*AuthFile, error) {
 			"name":  config.Name,
 		}),
 	}
+	switch strings.ToLower(config.CredentialType) {
+	case "password", "sshkey":
+		break
+	default:
+		return nil, errors.New("invalid value for credentialType")
+	}
 	if err := r.Reload(); err != nil {
 		return r, err
 	}
@@ -113,6 +205,7 @@ func New(config *Config) (*AuthFile, error) {
 type UserEntry struct {
 	Name            string
 	Password        string
+	PublicKey       string
 	Principals      []string
 	CriticalOptions map[string]string
 	Extensions      map[string]string

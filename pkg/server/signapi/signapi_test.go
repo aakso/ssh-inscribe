@@ -10,15 +10,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/auth/backend/authmock"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"
 	"github.com/aakso/ssh-inscribe/pkg/logging"
 	"github.com/dgrijalva/jwt-go"
 	"github.com/labstack/echo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/ssh"
+)
+
+const (
+	fakeRedirectUrl = "https://fake.url"
+	fakeChallenge   = "fakechallenge"
 )
 
 var (
@@ -55,24 +60,42 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 		Principals:      []string{"fake1", "fake2", "fake3"},
 		CriticalOptions: map[string]string{"test": "fake"},
 	}
-
-	authenticator *authmock.AuthMock = &authmock.AuthMock{
-		User:        "test",
-		Secret:      []byte("test"),
-		AuthName:    "testauth",
-		AuthRealm:   "testrealm",
-		AuthContext: fakeAuthContext,
+	fakeAuthContextFederated auth.AuthContext = auth.AuthContext{
+		Principals:      []string{"fake1", "fake2", "fake3"},
+		CriticalOptions: map[string]string{"test": "fake"},
+		AuthMeta: map[string]interface{}{
+			auth.MetaFederationAuthURL: fakeRedirectUrl,
+			"test": 123,
+		},
 	}
-	socketPath  string = path.Join(os.TempDir(), "signapitest")
-	signapi     *SignApi
-	e           *echo.Echo = echo.New()
-	signingKey  []byte     = []byte("testkey")
-	signedToken string
+	fakeAuthContextChallenge auth.AuthContext = auth.AuthContext{
+		Principals:      []string{"fake1", "fake2", "fake3"},
+		CriticalOptions: map[string]string{"test": "fake"},
+		AuthMeta: map[string]interface{}{
+			auth.MetaChallenge: fakeChallenge,
+		},
+	}
+	authenticator *authmock.AuthMock = &authmock.AuthMock{}
+	socketPath    string             = path.Join(os.TempDir(), "signapitest")
+	signapi       *SignApi
+	e             *echo.Echo = echo.New()
+	signingKey    []byte     = []byte("testkey")
+	signedToken   string
 )
+
+func resetAuthenticator() {
+	authenticator.User = "test"
+	authenticator.Secret = []byte("test")
+	authenticator.AuthName = "testauth"
+	authenticator.AuthRealm = "testrealm"
+	authenticator.AuthContext = fakeAuthContext
+	authenticator.ReturnStatus = auth.StatusCompleted
+}
 
 func TestMain(m *testing.M) {
 	logging.SetLevel(logrus.DebugLevel)
 	signer := keysigner.New(socketPath, "")
+	resetAuthenticator()
 	auths := []AuthenticatorListEntry{
 		AuthenticatorListEntry{
 			Authenticator: authenticator,
@@ -163,6 +186,35 @@ func TestLoginLongAuthContext(t *testing.T) {
 		return signingKey, nil
 	})
 	assert.Error(err, "we shouldn't have received a valid token")
+}
+
+func TestLoginFederatedRedirect(t *testing.T) {
+	authenticator.ReturnStatus = auth.StatusPending
+	authenticator.AuthContext = fakeAuthContextFederated
+	defer func() {
+		resetAuthenticator()
+	}()
+	assert := assert.New(t)
+	req, _ := http.NewRequest(echo.POST, "/v1/auth/"+authenticator.Name(), nil)
+	req.SetBasicAuth(authenticator.User, string(authenticator.Secret))
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Equal(http.StatusSeeOther, rec.Code, "We should get SeeOther status for federated auth")
+	assert.Equal(fakeRedirectUrl, rec.Header().Get(echo.HeaderLocation), "We should get redirect URL for federated auth")
+}
+func TestLoginChallengeResponse(t *testing.T) {
+	authenticator.ReturnStatus = auth.StatusPending
+	authenticator.AuthContext = fakeAuthContextChallenge
+	defer func() {
+		resetAuthenticator()
+	}()
+	assert := assert.New(t)
+	req, _ := http.NewRequest(echo.POST, "/v1/auth/"+authenticator.Name(), nil)
+	req.SetBasicAuth(authenticator.User, string(authenticator.Secret))
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	assert.Equal(http.StatusUnauthorized, rec.Code, "We should get unauthorized status for challenge auth")
+	assert.Equal(fakeChallenge, rec.Header().Get(ChallengeHeader), "We should get challenge header")
 }
 
 func TestSignNoKey(t *testing.T) {

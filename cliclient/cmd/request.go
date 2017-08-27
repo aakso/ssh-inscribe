@@ -34,13 +34,6 @@ var ReqCmd = &cobra.Command{
 
 func init() {
 	RootCmd.AddCommand(ReqCmd)
-	ReqCmd.Flags().StringVarP(
-		&ClientConfig.IdentityFile,
-		"identity",
-		"i",
-		os.Getenv("SSH_INSCRIBE_IDENTITY"),
-		"Identity (private key) file location. Required if --generate is unset ($SSH_INSCRIBE_IDENTITY)",
-	)
 
 	if os.Getenv("SSH_INSCRIBE_WRITE") != "" {
 		ClientConfig.WriteCert = true

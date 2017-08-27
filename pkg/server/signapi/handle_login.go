@@ -72,6 +72,12 @@ func (sa *SignApi) HandleLogin(c echo.Context) error {
 			_, err := fmt.Fprint(c.Response().Writer, signed)
 			return err
 		}
+
+		// Send challenge as a header
+		if challenge := actx.GetMetaString(auth.MetaChallenge); challenge != "" {
+			c.Response().Header().Set(ChallengeHeader, challenge)
+			return c.Blob(http.StatusUnauthorized, "application/jwt", []byte(signed))
+		}
 	}
 
 	return c.Blob(http.StatusOK, "application/jwt", []byte(signed))

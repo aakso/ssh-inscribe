@@ -7,21 +7,29 @@ import (
 )
 
 type AuthMock struct {
-	User        string
-	Secret      []byte
-	AuthName    string
-	AuthRealm   string
-	AuthContext auth.AuthContext
+	User         string
+	Secret       []byte
+	AuthName     string
+	AuthRealm    string
+	AuthContext  auth.AuthContext
+	ReturnStatus int
 }
 
 func (am *AuthMock) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials) (*auth.AuthContext, bool) {
+	meta := map[string]interface{}{}
+	for k, v := range am.AuthContext.AuthMeta {
+		meta[k] = v
+	}
+	for k, v := range creds.Meta {
+		meta[k] = v
+	}
 	if creds.UserIdentifier == am.User && bytes.Equal(creds.Secret, am.Secret) {
 		ctx := am.AuthContext
-		ctx.Status = auth.StatusCompleted
+		ctx.Status = am.ReturnStatus
 		ctx.Parent = pctx
 		ctx.Authenticator = am.Name()
 		ctx.SubjectName = am.User
-		ctx.AuthMeta = creds.Meta
+		ctx.AuthMeta = meta
 		return &ctx, true
 	}
 	return nil, false

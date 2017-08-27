@@ -10,7 +10,8 @@ import (
 )
 
 const (
-	TokenLifeSecs = 120
+	TokenLifeSecs   = 120
+	ChallengeHeader = "X-Auth-Challenge"
 )
 
 type AuthenticatorListEntry struct {
