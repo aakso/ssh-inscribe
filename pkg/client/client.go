@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -62,7 +63,7 @@ type Client struct {
 	restSRV         *resty.SRVRecord
 	agentClient     agent.Agent
 	agentConn       net.Conn
-	credentialInput func(name, realm, credentialType string) []byte
+	credentialInput func(name, realm, credentialType, def string) []byte
 
 	ca             ssh.PublicKey
 	userPrivateKey interface{}
@@ -71,11 +72,11 @@ type Client struct {
 	serverVersion  *semver.Version
 }
 
-func (c *Client) getCredential(name, realm, credentialType string) []byte {
+func (c *Client) getCredential(name, realm, credentialType, def string) []byte {
 	if c.credentialInput == nil {
 		c.credentialInput = interactiveCredentialsPrompt
 	}
-	return c.credentialInput(name, realm, credentialType)
+	return c.credentialInput(name, realm, credentialType, def)
 }
 
 func (c *Client) AddCA() error {
@@ -557,10 +558,10 @@ func (c *Client) authenticate() error {
 		var user, secret string
 		switch au.AuthenticatorCredentialType {
 		case auth.CredentialUserPassword:
-			user = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypeUser))
-			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePassword))
+			user = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypeUser, os.Getenv("USER")))
+			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePassword, ""))
 		case auth.CredentialPin:
-			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePin))
+			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePin, ""))
 		case auth.CredentialFederated:
 			c.authenticateFederated(au.AuthenticatorName, au.AuthenticatorRealm)
 			continue
@@ -601,7 +602,7 @@ outer:
 		switch {
 		case err == sshkeys.ErrIncorrectPassword && !haveSecret:
 			log.Debug("encrypted identity file")
-			secret = c.getCredential("private key", desc, CredentialTypePassword)
+			secret = c.getCredential("private key", desc, CredentialTypePassword, "")
 			haveSecret = true
 		case err == nil:
 			break outer
@@ -948,27 +949,59 @@ func openFederatedAuthURL(url string) {
 	}
 }
 
-func interactiveCredentialsPrompt(name, realm, credentialType string) []byte {
+func interactiveCredentialsPrompt(name, realm, credentialType, def string) []byte {
+	var ret []byte
 	prompt := fmt.Sprintf("Enter %s for %q (%s): ",
 		strings.Title(credentialType),
 		name,
 		realm,
 	)
-	switch credentialType {
-	case CredentialTypePassword:
-		if ret, err := speakeasy.FAsk(os.Stderr, prompt); err == nil {
-			return []byte(ret)
-		} else {
-			fmt.Fprintf(os.Stderr, "WARNING: cannot do password prompt: %s\n", err)
-		}
-		fallthrough
-	default:
-		fmt.Fprint(os.Stderr, prompt)
-		reader := bufio.NewReader(os.Stdin)
-		ret, _ := reader.ReadBytes('\n')
-		ret = ret[:len(ret)-1]
-		return ret
+	if def != "" {
+		prompt = fmt.Sprintf("Enter %s for %q (%s) [default: %s]: ",
+			strings.Title(credentialType),
+			name,
+			realm,
+			def,
+		)
 	}
+	ret = askPass(prompt)
+	// Fall back to terminal input
+	if ret == nil {
+		switch credentialType {
+		case CredentialTypePassword:
+			if ret, err := speakeasy.FAsk(os.Stderr, prompt); err == nil {
+				return []byte(ret)
+			} else {
+				fmt.Fprintf(os.Stderr, "WARNING: cannot do password prompt: %s\n", err)
+			}
+			fallthrough
+		default:
+			fmt.Fprint(os.Stderr, prompt)
+			reader := bufio.NewReader(os.Stdin)
+			ret, _ = reader.ReadBytes('\n')
+			ret = ret[:len(ret)-1]
+		}
+	}
+	if len(ret) == 0 && def != "" {
+		return []byte(def)
+	}
+	return ret
+}
+
+func askPass(prompt string) []byte {
+	bin, err := exec.LookPath("ssh-askpass")
+	if err != nil {
+		return nil
+	}
+	proc := exec.Command(bin, prompt)
+	out, err := proc.Output()
+	if err != nil {
+		return nil
+	}
+	if out[len(out)-1] == '\n' {
+		out = out[0 : len(out)-1]
+	}
+	return out
 }
 
 func iterAgentKeys(agentClient agent.Agent, fn func(key ssh.PublicKey, comment string) error) error {
