@@ -4,14 +4,15 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/coreos/go-oidc"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 )
 
@@ -91,7 +92,7 @@ func (ao *AuthOIDC) startFlow(pctx *auth.AuthContext, meta map[string]interface{
 		meta = map[string]interface{}{}
 	}
 	// State will be used as a key to the cache containing the pending actx
-	state := util.RandB64(32)
+	state := newRandomState()
 	log = log.WithField("state", state).WithField("audit_id", meta[auth.MetaAuditID])
 	meta[stateKey] = state
 	meta[auth.MetaFederationAuthURL] = ao.oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOnline)
@@ -307,4 +308,11 @@ func New(config *Config) (*AuthOIDC, error) {
 		}),
 	}
 	return r, nil
+}
+
+func newRandomState() string {
+	state := util.RandB64(32)
+	state = strings.Replace(state, "+", "-", -1)
+	state = strings.Replace(state, "/", "-", -1)
+	return state
 }

@@ -89,7 +89,12 @@ func (sa *SignApi) HandleAuthCallback(c echo.Context) error {
 		return echo.ErrNotFound
 	}
 
-	if err := fa.FederationCallback(c.QueryParams()); err != nil {
+	params, err := c.FormParams()
+	if err != nil {
+		params = c.QueryParams()
+	}
+
+	if err := fa.FederationCallback(params); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, err)
 	}
 
