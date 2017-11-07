@@ -1,8 +1,10 @@
 package authoidc
 
 type TokenValueMapping struct {
-	SubjectNameField string `yaml:"subjectNameField"`
-	PrincipalsField  string `yaml:"principalsField"`
+	SubjectNameField    string `yaml:"subjectNameField"`
+	SubjectNameTemplate string `yaml:"subjectNameTemplate"`
+	PrincipalsField     string `yaml:"principalsField"`
+	PrincipalTemplate   string `yaml:"principalTemplate"`
 }
 
 type Config struct {
@@ -33,8 +35,10 @@ var Defaults *Config = &Config{
 	MaxPendingAuthAttempts: 1000,
 
 	ValueMappings: TokenValueMapping{
-		SubjectNameField: "name",
-		PrincipalsField:  "email",
+		SubjectNameField:    "name",
+		SubjectNameTemplate: "{{.}}",
+		PrincipalsField:     "email",
+		PrincipalTemplate:   "{{.}}",
 	},
 
 	Timeout: 15,

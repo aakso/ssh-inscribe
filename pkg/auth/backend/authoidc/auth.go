@@ -1,11 +1,13 @@
 package authoidc
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net/url"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/aakso/ssh-inscribe/pkg/auth"
@@ -20,10 +22,8 @@ const (
 	stateKey = "state"
 	codeKey  = "code"
 
-	// Templates
-	UserName    = "UserName"
-	SubjectName = "SubjectName"
-	Principals  = "Principals"
+	subjectName = "subjectName"
+	principal   = "principal"
 )
 
 type entryState struct {
@@ -34,6 +34,7 @@ type entryState struct {
 type AuthOIDC struct {
 	config      *Config
 	log         *logrus.Entry
+	tpls        *template.Template
 	oauthConfig *oauth2.Config
 	provider    *oidc.Provider
 	verifier    *oidc.IDTokenVerifier
@@ -214,6 +215,7 @@ func (ao *AuthOIDC) FederationCallback(data interface{}) error {
 
 // Extrack idtoken and fill auth context
 func (ao *AuthOIDC) processToken(actx *auth.AuthContext, token *oauth2.Token) error {
+	log := ao.log.WithField("action", "processToken")
 	jwtToken, ok := token.Extra("id_token").(string)
 	if !ok {
 		return errors.Errorf("%s: no id_token found", ao.Name())
@@ -226,10 +228,13 @@ func (ao *AuthOIDC) processToken(actx *auth.AuthContext, token *oauth2.Token) er
 	}
 	claims := map[string]interface{}{}
 	IDToken.Claims(&claims)
+	log.WithField("claims", claims).Debug("got claims")
 
-	// Map user defined fields
-	actx.SubjectName = selectString(claims, ao.config.ValueMappings.SubjectNameField)
-	actx.Principals = selectStringSlice(claims, ao.config.ValueMappings.PrincipalsField)
+	// Map user defined fields and run them thru the template
+	actx.SubjectName = ao.renderTpl(subjectName, selectString(claims, ao.config.ValueMappings.SubjectNameField))
+	for _, v := range selectStringSlice(claims, ao.config.ValueMappings.PrincipalsField) {
+		actx.Principals = append(actx.Principals, ao.renderTpl(principal, v))
+	}
 	// Fall back to single principal in case the token field is not a string slice
 	if actx.Principals == nil {
 		if s := selectString(claims, ao.config.ValueMappings.PrincipalsField); s != "" {
@@ -244,6 +249,15 @@ func (ao *AuthOIDC) processToken(actx *auth.AuthContext, token *oauth2.Token) er
 	actx.Status = auth.StatusCompleted
 
 	return nil
+}
+
+func (ao *AuthOIDC) renderTpl(name string, data interface{}) string {
+	buf := bytes.NewBuffer([]byte{})
+	err := ao.tpls.ExecuteTemplate(buf, name, data)
+	if err != nil {
+		ao.log.WithError(err).Errorf("template render error: %s", name)
+	}
+	return buf.String()
 }
 
 func selectStringSlice(m map[string]interface{}, k string) []string {
@@ -279,6 +293,20 @@ func New(config *Config) (*AuthOIDC, error) {
 		"name":  config.Name,
 	})
 
+	var tplError error
+	rootTpl := template.New("root")
+	parseTpl := func(name, tpl string) {
+		_, err := rootTpl.New(name).Parse(tpl)
+		if err != nil {
+			tplError = errors.Wrapf(err, "cannot parse %s", name)
+		}
+	}
+	parseTpl(subjectName, config.ValueMappings.SubjectNameTemplate)
+	parseTpl(principal, config.ValueMappings.PrincipalTemplate)
+	if tplError != nil {
+		return nil, tplError
+	}
+
 	provider, err := oidc.NewProvider(context.Background(), config.ProviderURL)
 	if err != nil {
 		return nil, errors.Wrapf(err, "%s: cannot instantiate auth provider", config.Name)
@@ -290,6 +318,7 @@ func New(config *Config) (*AuthOIDC, error) {
 
 	r := &AuthOIDC{
 		config:          config,
+		tpls:            rootTpl,
 		pendingRequests: map[string]entryState{},
 		oauthConfig: &oauth2.Config{
 			RedirectURL:  config.RedirectURL,
