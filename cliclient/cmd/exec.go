@@ -2,12 +2,12 @@ package cmd
 
 import (
 	"io"
+	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
-	"path"
-	"path/filepath"
 	"sync"
+	"syscall"
 
 	"github.com/aakso/ssh-inscribe/pkg/client"
 	"github.com/aakso/ssh-inscribe/pkg/logging"
@@ -26,19 +26,17 @@ var ExecCmd = &cobra.Command{
 	},
 }
 var agentListener net.Listener
-var agentSock = path.Join(os.Getenv("HOME"), ".ssh_inscribe", "adhocagent.sock")
 var wg = new(sync.WaitGroup)
 var Log = logging.GetLogger("exec").WithField("pkg", "cmd/exec")
 
 func runExecCommand(args []string) error {
 	if os.Getenv("SSH_AUTH_SOCK") == "" {
-		// Ensure agentSock dir exists
-		if info, _ := os.Stat(filepath.Dir(agentSock)); info == nil {
-			if err := os.MkdirAll(filepath.Dir(agentSock), 0750); err != nil {
-				return errors.Wrap(err, "cannot create directory")
-			}
+		tmpFile, err := ioutil.TempFile(os.TempDir(), "sshi_adhocagent")
+		if err != nil {
+			return err
 		}
-		if err := startAdhocAgent(); err != nil {
+		agentSock := tmpFile.Name()
+		if err := startAdhocAgent(agentSock); err != nil {
 			return err
 		}
 		os.Setenv("SSH_AUTH_SOCK", agentSock)
@@ -56,15 +54,17 @@ func runExecCommand(args []string) error {
 	return runCommand(args)
 }
 
-func startAdhocAgent() error {
+func startAdhocAgent(agentSock string) error {
 	log := Log.WithField("worker", "adhocAgent")
 	if _, err := os.Stat(agentSock); err == nil {
 		if err := os.Remove(agentSock); err != nil {
 			return errors.Wrapf(err, "cannot remove existing agent socket: %s", agentSock)
 		}
 	}
+	prevUmask := syscall.Umask(0177)
 	ln, err := net.Listen("unix", agentSock)
 	agentListener = ln
+	syscall.Umask(prevUmask)
 	if err != nil {
 		return errors.Wrapf(err, "cannot listen on socket: %s", agentSock)
 	}
