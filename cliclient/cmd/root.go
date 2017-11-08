@@ -134,6 +134,16 @@ func init() {
 		"Set quiet mode ($SSH_INSCRIBE_QUIET)",
 	)
 
+	if os.Getenv("SSH_INSCRIBE_AGENT_CONFIRM") != "" {
+		ClientConfig.Quiet = true
+	}
+	RootCmd.PersistentFlags().BoolVar(
+		&ClientConfig.AgentConfirm,
+		"agent-confirm",
+		ClientConfig.AgentConfirm,
+		"Request confirm constraint when storing keys and certs to the agent ($SSH_INSCRIBE_AGENT_CONFIRM)",
+	)
+
 	defLoginAuthEndpoints := []string{}
 	if logins := os.Getenv("SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS"); logins != "" {
 		defLoginAuthEndpoints = strings.Split(logins, ",")
@@ -143,7 +153,7 @@ func init() {
 		"login",
 		"l",
 		defLoginAuthEndpoints,
-		"Login to specific auth endpoits ($SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS)",
+		"Login to specific auth endpoints ($SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS)",
 	)
 
 	var defIncludePrincipals string

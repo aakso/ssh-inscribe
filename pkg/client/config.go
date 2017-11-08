@@ -30,6 +30,9 @@ type Config struct {
 	// Store key and certificate to a ssh-agent
 	UseAgent bool
 
+	// Store certs and keys with confirm constraint
+	AgentConfirm bool
+
 	// Do not print anything
 	Quiet bool
 

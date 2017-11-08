@@ -330,14 +330,18 @@ func (c *Client) storeInAgent() error {
 
 	if !keyInAgent {
 		addedKey = agent.AddedKey{
-			PrivateKey:   pkey,
-			Comment:      AgentComment,
-			LifetimeSecs: lifetime,
+			PrivateKey:       pkey,
+			Comment:          AgentComment,
+			LifetimeSecs:     lifetime,
+			ConfirmBeforeUse: c.Config.AgentConfirm,
 		}
 		if err := c.agentClient.Add(addedKey); err != nil {
 			return errors.Wrap(err, "could not add to agent")
 		}
-		log.WithField("lifetime_secs", addedKey.LifetimeSecs).Debug("added private key")
+		log.WithField("lifetime_secs", addedKey.LifetimeSecs).
+			WithField("confirm_before_use", c.Config.AgentConfirm).Debug("added private key")
+	} else if c.Config.AgentConfirm {
+		log.Warning("agent confirmation requested but the private key is already in the agent, not adding the constraint")
 	}
 	return nil
 }
