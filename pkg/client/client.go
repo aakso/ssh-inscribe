@@ -317,15 +317,17 @@ func (c *Client) storeInAgent() error {
 		pkey = c.userPrivateKey
 	}
 	addedKey := agent.AddedKey{
-		PrivateKey:   pkey,
-		Certificate:  c.userCert,
-		Comment:      AgentComment,
-		LifetimeSecs: lifetime,
+		PrivateKey:       pkey,
+		Certificate:      c.userCert,
+		Comment:          AgentComment,
+		LifetimeSecs:     lifetime,
+		ConfirmBeforeUse: c.Config.AgentConfirm,
 	}
 	if err := c.agentClient.Add(addedKey); err != nil {
 		return errors.Wrap(err, "could not add to agent")
 	}
 	log.WithField("keyid", c.userCert.KeyId).
+		WithField("confirm_before_use", c.Config.AgentConfirm).
 		WithField("lifetime_secs", addedKey.LifetimeSecs).Debug("added certificate")
 
 	if !keyInAgent {
