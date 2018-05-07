@@ -75,7 +75,7 @@ windows:
 rpm:
 	$(MAKE) PKG_OS=linux rpm-client rpm-server
 .PHONY: release
-release: clean test linux darwin rpm
+release: clean test linux darwin rpm windows
 	hub release create -d $(HUBARTIFACTS) -m $(PKG_VERSION) $(PKG_SHORT_VERSION)
 
 .PHONY: rpm-server
