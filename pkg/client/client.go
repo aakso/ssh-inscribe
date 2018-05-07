@@ -991,7 +991,7 @@ func getCurrentUsername() string {
 	if name := os.Getenv("USERNAME"); name != "" {
 		return name
 	}
-	if user, err := user.Current(); err != nil {
+	if user, err := user.Current(); err == nil {
 		return user.Username
 	}
 	return ""
