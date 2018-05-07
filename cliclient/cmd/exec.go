@@ -1,19 +1,26 @@
 package cmd
 
 import (
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
+	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/aakso/ssh-inscribe/pkg/client"
 	"github.com/aakso/ssh-inscribe/pkg/logging"
+	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh/agent"
+)
+
+const (
+	DefaultWindowsAdhocAgentListener = `\\.\pipe\sshi-adhoc-%s`
 )
 
 var ExecCmd = &cobra.Command{
@@ -30,16 +37,34 @@ var wg = new(sync.WaitGroup)
 var Log = logging.GetLogger("exec").WithField("pkg", "cmd/exec")
 
 func runExecCommand(args []string) error {
-	if os.Getenv("SSH_AUTH_SOCK") == "" {
-		tmpFile, err := ioutil.TempFile(os.TempDir(), "sshi_adhocagent")
-		if err != nil {
+	authSockName := os.Getenv("SSH_AUTH_SOCK")
+	if authSockName == "" {
+		var (
+			ln  net.Listener
+			err error
+		)
+		switch runtime.GOOS {
+		case "windows":
+			authSockName = fmt.Sprintf(DefaultWindowsAdhocAgentListener, util.RandB64(16))
+			ln, err = util.LocalListen(authSockName)
+			if err != nil {
+				return err
+			}
+		default:
+			tmpFile, err := ioutil.TempFile(os.TempDir(), "sshi_adhocagent")
+			if err != nil {
+				return err
+			}
+			authSockName = tmpFile.Name()
+			ln, err = util.LocalListen(authSockName)
+			if err != nil {
+				return err
+			}
+		}
+		if err := startAdhocAgent(ln); err != nil {
 			return err
 		}
-		agentSock := tmpFile.Name()
-		if err := startAdhocAgent(agentSock); err != nil {
-			return err
-		}
-		os.Setenv("SSH_AUTH_SOCK", agentSock)
+		os.Setenv("SSH_AUTH_SOCK", authSockName)
 		defer func() {
 			agentListener.Close()
 			wg.Wait()
@@ -54,31 +79,18 @@ func runExecCommand(args []string) error {
 	return runCommand(args)
 }
 
-func startAdhocAgent(agentSock string) error {
+func startAdhocAgent(ln net.Listener) error {
 	log := Log.WithField("worker", "adhocAgent")
-	if _, err := os.Stat(agentSock); err == nil {
-		if err := os.Remove(agentSock); err != nil {
-			return errors.Wrapf(err, "cannot remove existing agent socket: %s", agentSock)
-		}
-	}
-	prevUmask := syscall.Umask(0177)
-	ln, err := net.Listen("unix", agentSock)
 	agentListener = ln
-	syscall.Umask(prevUmask)
-	if err != nil {
-		return errors.Wrapf(err, "cannot listen on socket: %s", agentSock)
-	}
 	go func() {
 		keyRing := agent.NewKeyring()
 		defer wg.Done()
 		for {
 			conn, err := agentListener.Accept()
 			if err != nil {
-				if operr, _ := err.(*net.OpError); operr != nil {
-					if operr.Err.Error() == "use of closed network connection" {
-						log.Debug("shutting down")
-						return
-					}
+				if strings.Contains(err.Error(), "use of closed network connection") {
+					log.Debug("shutting down")
+					return
 				}
 				log.WithError(err).Error("accept error")
 			}

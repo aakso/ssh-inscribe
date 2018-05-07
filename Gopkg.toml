@@ -42,10 +42,6 @@
   version = "0.2.2"
 
 [[constraint]]
-  branch = "master"
-  name = "github.com/howeyc/gopass"
-
-[[constraint]]
   name = "github.com/labstack/echo"
   version = "3.2.1"
 
@@ -108,3 +104,11 @@
 [[constraint]]
   branch = "master"
   name = "github.com/ScaleFT/sshkeys"
+
+[[constraint]]
+  name = "github.com/Microsoft/go-winio"
+  version = "0.4.7"
+
+[[constraint]]
+  name = "github.com/chzyer/readline"
+  version = "1.4.0"

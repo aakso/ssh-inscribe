@@ -1,7 +1,6 @@
 package client
 
 import (
-	"bufio"
 	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
@@ -13,19 +12,23 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
+
+	"github.com/chzyer/readline"
 
 	"golang.org/x/crypto/ed25519"
 
 	"github.com/aakso/ssh-inscribe/pkg/globals"
+	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/labstack/gommon/log"
 
 	"github.com/ScaleFT/sshkeys"
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/server/signapi/objects"
-	"github.com/bgentry/speakeasy"
 	"github.com/blang/semver"
 	"github.com/go-resty/resty"
 	"github.com/pkg/errors"
@@ -280,6 +283,20 @@ func (c *Client) generate() error {
 	return nil
 }
 
+func (c *Client) windowsStoreInAgentWorkaround(addedKey *agent.AddedKey) error {
+	// At the moment Microsoft's ssh-agent doesn't seem to support constraints
+	// Add this workaround to try to add the without them and warn the user
+	log := Log.WithField("action", "windowsStoreInAgentWorkaround")
+	log.Warn("Failed to add key to the agent. Running on Windows, trying to add the key without constraints")
+	// We need to reconnect after a failure
+	if err := c.connectAgent(); err != nil {
+		return err
+	}
+	addedKey.LifetimeSecs = 0
+	addedKey.ConfirmBeforeUse = false
+	return c.agentClient.Add(*addedKey)
+}
+
 // Store signed key to a ssh-agent, remove all other instances of certificates
 // signed by the CA
 func (c *Client) storeInAgent() error {
@@ -323,14 +340,22 @@ func (c *Client) storeInAgent() error {
 		LifetimeSecs:     lifetime,
 		ConfirmBeforeUse: c.Config.AgentConfirm,
 	}
+	microsoftSSHAgent := false
 	if err := c.agentClient.Add(addedKey); err != nil {
-		return errors.Wrap(err, "could not add to agent")
+		if runtime.GOOS == "windows" {
+			err = c.windowsStoreInAgentWorkaround(&addedKey)
+			microsoftSSHAgent = true
+		}
+		if err != nil {
+			return errors.Wrap(err, "could not add to agent")
+		}
 	}
 	log.WithField("keyid", c.userCert.KeyId).
 		WithField("confirm_before_use", c.Config.AgentConfirm).
 		WithField("lifetime_secs", addedKey.LifetimeSecs).Debug("added certificate")
 
-	if !keyInAgent {
+	// Microsoft ssh-agent seems to overwrite the certificate
+	if !keyInAgent && !microsoftSSHAgent {
 		addedKey = agent.AddedKey{
 			PrivateKey:       pkey,
 			Comment:          AgentComment,
@@ -338,10 +363,15 @@ func (c *Client) storeInAgent() error {
 			ConfirmBeforeUse: c.Config.AgentConfirm,
 		}
 		if err := c.agentClient.Add(addedKey); err != nil {
-			return errors.Wrap(err, "could not add to agent")
+			if runtime.GOOS == "windows" {
+				err = c.windowsStoreInAgentWorkaround(&addedKey)
+			}
+			if err != nil {
+				return errors.Wrap(err, "could not add to agent")
+			}
 		}
 		log.WithField("lifetime_secs", addedKey.LifetimeSecs).
-			WithField("confirm_before_use", c.Config.AgentConfirm).Debug("added private key")
+			WithField("confirm_before_use", addedKey.ConfirmBeforeUse).Debug("added private key")
 	} else if c.Config.AgentConfirm {
 		log.Warning("agent confirmation requested but the private key is already in the agent, not adding the constraint")
 	}
@@ -561,10 +591,10 @@ func (c *Client) authenticate() error {
 	log.WithField("authenticator_list", finalAuthenticators).Debug("begin authentication")
 
 	for _, au := range finalAuthenticators {
-		var user, secret string
+		var userName, secret string
 		switch au.AuthenticatorCredentialType {
 		case auth.CredentialUserPassword:
-			user = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypeUser, os.Getenv("USER")))
+			userName = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypeUser, getCurrentUsername()))
 			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePassword, ""))
 		case auth.CredentialPin:
 			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePin, ""))
@@ -576,7 +606,7 @@ func (c *Client) authenticate() error {
 		}
 		log.WithField("authenticator", au.AuthenticatorName).Debug("authenticating")
 		// Send Credentials
-		req := c.newReq().SetBasicAuth(user, secret)
+		req := c.newReq().SetBasicAuth(userName, secret)
 		if c.signerToken != nil {
 			req.SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken))
 		}
@@ -744,19 +774,18 @@ func (c *Client) checkVersion() error {
 
 // Connect to ssh-agent if possible
 func (c *Client) connectAgent() error {
-	sock := os.Getenv("SSH_AUTH_SOCK")
-	Log.WithField("socket", sock).Debug("connecting to ssh-agent")
-	conn, err := net.Dial("unix", sock)
+	conn, err := util.DialAuthSock("")
 	if err != nil {
 		return errors.Wrap(err, "could not connect to ssh-agent")
 	}
+	Log.WithField("socket", conn.RemoteAddr()).Debug("connecting to ssh-agent")
 	c.agentConn = conn
 	agentClient := agent.NewClient(c.agentConn)
 	if _, err := agentClient.List(); err != nil {
 		return errors.Wrap(err, "could not connect to ssh-agent")
 	}
 	c.agentClient = agentClient
-	Log.WithField("socket", sock).Debug("connected to ssh-agent")
+	Log.WithField("socket", conn.RemoteAddr()).Debug("connected to ssh-agent")
 	return nil
 }
 
@@ -955,6 +984,19 @@ func openFederatedAuthURL(url string) {
 	}
 }
 
+func getCurrentUsername() string {
+	if name := os.Getenv("USER"); name != "" {
+		return name
+	}
+	if name := os.Getenv("USERNAME"); name != "" {
+		return name
+	}
+	if user, err := user.Current(); err != nil {
+		return user.Username
+	}
+	return ""
+}
+
 func interactiveCredentialsPrompt(name, realm, credentialType, def string) []byte {
 	var ret []byte
 	prompt := fmt.Sprintf("Enter %s for %q (%s): ",
@@ -971,21 +1013,28 @@ func interactiveCredentialsPrompt(name, realm, credentialType, def string) []byt
 		)
 	}
 	ret = askPass(prompt)
+
 	// Fall back to terminal input
+	rl, err := readline.New(prompt)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "WARNING: cannot do readline: %s\n", err)
+		return []byte(def)
+	}
+
 	if ret == nil {
 		switch credentialType {
 		case CredentialTypePassword:
-			if ret, err := speakeasy.FAsk(os.Stderr, prompt); err == nil {
+			if ret, err := rl.ReadPassword(prompt); err == nil {
 				return []byte(ret)
 			} else {
-				fmt.Fprintf(os.Stderr, "WARNING: cannot do password prompt: %s\n", err)
+				fmt.Fprintf(os.Stderr, "WARNING: cannot read password: %s\n", err)
 			}
-			fallthrough
 		default:
-			fmt.Fprint(os.Stderr, prompt)
-			reader := bufio.NewReader(os.Stdin)
-			ret, _ = reader.ReadBytes('\n')
-			ret = ret[:len(ret)-1]
+			line, err := rl.Readline()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "WARNING: cannot read: %s\n", err)
+			}
+			ret = []byte(line)
 		}
 	}
 	if len(ret) == 0 && def != "" {
@@ -995,7 +1044,11 @@ func interactiveCredentialsPrompt(name, realm, credentialType, def string) []byt
 }
 
 func askPass(prompt string) []byte {
-	bin, err := exec.LookPath("ssh-askpass")
+	executable := os.Getenv("SSH_ASKPASS")
+	if executable == "" {
+		executable = "ssh-askpass"
+	}
+	bin, err := exec.LookPath(executable)
 	if err != nil {
 		return nil
 	}

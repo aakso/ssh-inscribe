@@ -1,16 +1,12 @@
 package logging
 
 import (
-	"fmt"
 	"io/ioutil"
-	"log/syslog"
-	"net/url"
 	"strings"
 
-	"github.com/sirupsen/logrus"
-	syslog2 "github.com/sirupsen/logrus/hooks/syslog"
 	"github.com/aakso/ssh-inscribe/pkg/config"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 var pkgLoggers map[string]*logrus.Logger = make(map[string]*logrus.Logger)
@@ -62,16 +58,7 @@ func Setup() error {
 	}
 
 	if conf.EnableSyslog {
-		var dst, scheme string
-		if conf.SyslogURL != "" {
-			surl, err := url.Parse(conf.SyslogURL)
-			if err != nil {
-				return errors.Wrap(err, "cannot parse syslogURL")
-			}
-			scheme = surl.Scheme
-			dst = fmt.Sprintf("%s:%s", surl.Hostname(), surl.Port())
-		}
-		hook, err := syslog2.NewSyslogHook(scheme, dst, syslog.LOG_INFO, "")
+		hook, err := getSyslogLoggerHook(conf.SyslogURL)
 		if err != nil {
 			return errors.Wrap(err, "cannot create syslog hook")
 		}

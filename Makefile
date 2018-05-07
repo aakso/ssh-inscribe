@@ -18,6 +18,7 @@ PKG_SERVICE_SSHID = usr/lib/systemd/system/ssh-inscribe.service
 PKG_USER = sshi
 PKG_GROUP = sshi
 PKG_VARDIR = /var/lib/ssh-inscribe
+PKG_BIN_SUFFIX =
 
 PKG_FILES_SERVER = $(PKG_BIN_SSHID) \
 	$(PKG_SERVICE_SSHID)
@@ -40,7 +41,7 @@ test -f /$(PKG_SSHID_CONF) || ssh-inscribe defaults > /$(PKG_SSHID_CONF)
 endef
 export POST_INSTALL_SERVER
 
-build: $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH) $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH)
+build-server: $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH)
 
 $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH):
 	GOOS=$(PKG_OS) go build \
@@ -49,21 +50,27 @@ $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH):
 			-X github.com/aakso/ssh-inscribe/pkg/globals.confDir=/$(PKG_ETC) \
 			-X github.com/aakso/ssh-inscribe/pkg/globals.version=$(PKG_VERSION) \
 		' \
-		-o $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH) main.go
+		-o $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH)$(PKG_BIN_SUFFIX) main.go
 
+build-client: $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH)
 $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH):
 	GOOS=$(PKG_OS) go build \
 		-ldflags '\
 			-X github.com/aakso/ssh-inscribe/pkg/globals.version=$(PKG_VERSION) \
 		' \
-		-o $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH) cliclient/sshi/main.go
+		-o $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH)$(PKG_BIN_SUFFIX) cliclient/sshi/main.go
 
 .PHONY: linux
 linux:
-	$(MAKE) PKG_OS=linux build
+	$(MAKE) PKG_OS=linux build-server
+	$(MAKE) PKG_OS=linux build-client
 .PHONY: darwin
 darwin:
-	$(MAKE) PKG_OS=darwin build
+	$(MAKE) PKG_OS=darwin build-server
+	$(MAKE) PKG_OS=darwin build-client
+.PHONY: windows
+windows:
+	$(MAKE) PKG_OS=windows PKG_BIN_SUFFIX=.exe build-client
 .PHONY: rpm
 rpm:
 	$(MAKE) PKG_OS=linux rpm-client rpm-server
@@ -119,6 +126,18 @@ rpm_setup_server_fpm_files:
 .PHONY: rpm_setup_client_fpm_files
 rpm_setup_client_fpm_files:
 	cp build/sshi-$(PKG_OS)-$(PKG_ARCH) $(FAKEROOT_CLIENT)/$(PKG_BIN_SSHI)
+
+.PHONY: patch
+patch:
+	patch --dry-run -N -p1 < patch/readline_issue112.patch
+	patch -N -p1 < patch/readline_issue112.patch
+
+.PHONY: ensure-deps
+ensure-deps:
+	dep ensure
+
+.PHONY: get-deps
+get-deps: ensure-deps patch
 
 .PHONY: test
 test:
