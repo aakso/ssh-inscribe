@@ -27,8 +27,8 @@ const (
 )
 
 type entryState struct {
-	token *oauth2.Token
-	ts    time.Time
+	claims map[string]interface{}
+	ts     time.Time
 }
 
 type AuthOIDC struct {
@@ -39,7 +39,7 @@ type AuthOIDC struct {
 	provider    *oidc.Provider
 	verifier    *oidc.IDTokenVerifier
 
-	sync.Mutex
+	sync.RWMutex
 	pendingRequests map[string]entryState
 	nextEvict       *time.Timer
 }
@@ -49,32 +49,40 @@ func (ao *AuthOIDC) authFlowTimeout() time.Duration {
 }
 
 // Save pending auth request with state key and schedule an evict task
-func (ao *AuthOIDC) saveState(state string, token *oauth2.Token) error {
+func (ao *AuthOIDC) saveState(state string, claims map[string]interface{}) error {
+	ao.Lock()
+	defer ao.Unlock()
 	if len(ao.pendingRequests) >= ao.config.MaxPendingAuthAttempts {
 		return errors.New("maximum number of pending requests reached")
 	}
 
-	ao.pendingRequests[state] = entryState{token: token, ts: time.Now()}
+	ao.pendingRequests[state] = entryState{claims: claims, ts: time.Now()}
 	if ao.nextEvict != nil {
 		ao.nextEvict.Reset(ao.authFlowTimeout())
 	} else {
 		ao.nextEvict = time.AfterFunc(ao.authFlowTimeout(), func() {
-			ao.Lock()
-			defer ao.Unlock()
 			ao.evictStateEntries()
 		})
 	}
 	return nil
 }
 
+func (ao *AuthOIDC) deleteState(state string) {
+	ao.Lock()
+	defer ao.Unlock()
+	delete(ao.pendingRequests, state)
+}
+
 // Return auth request if sate key matches and the request hasn't expired
-func (ao *AuthOIDC) getState(state string) *entryState {
+func (ao *AuthOIDC) getState(state string) (entryState, bool) {
+	ao.RLock()
+	defer ao.RUnlock()
 	if v, ok := ao.pendingRequests[state]; ok {
 		if v.ts.Add(ao.authFlowTimeout()).After(time.Now()) {
-			return &v
+			return v, true
 		}
 	}
-	return nil
+	return entryState{}, false
 }
 
 // Evict expired auth requests
@@ -118,13 +126,10 @@ func (ao *AuthOIDC) completeFlow(pctx *auth.AuthContext) (*auth.AuthContext, boo
 	log = log.WithField("audit_id", auditID).
 		WithField("state", state)
 	// Check whether this is a started authorization
-	if entry := ao.getState(state); entry != nil {
-		if entry.token != nil {
-			if err := ao.processToken(pctx, entry.token); err != nil {
-				log.WithError(err).Error("cannot process token")
-				return nil, false
-			}
-			delete(ao.pendingRequests, state)
+	if entry, ok := ao.getState(state); ok != false {
+		if entry.claims != nil {
+			ao.fillAuthContext(pctx, entry.claims)
+			ao.deleteState(state)
 			log.Info("completed authentication")
 			return pctx, true
 		} else {
@@ -140,8 +145,6 @@ func (ao *AuthOIDC) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 	if creds == nil {
 		return nil, false
 	}
-	ao.Lock()
-	defer ao.Unlock()
 	if pctx == nil {
 		ao.log.Debug("no actx, start new flow")
 		return ao.startFlow(nil, creds.Meta)
@@ -190,10 +193,7 @@ func (ao *AuthOIDC) FederationCallback(data interface{}) error {
 		log.Info("no auth code")
 		return errors.New("no auth code")
 	}
-	ao.Lock()
-	defer ao.Unlock()
-	entry := ao.getState(state)
-	if entry == nil {
+	if _, ok := ao.getState(state); !ok {
 		log.Info("unknown state")
 		return errors.New("no matching state found")
 	}
@@ -206,30 +206,19 @@ func (ao *AuthOIDC) FederationCallback(data interface{}) error {
 		log.WithError(err).Error("cannot exchange auth code")
 		return errors.Wrap(err, "cannot exchange auth code")
 	}
-	if err := ao.saveState(state, token); err != nil {
+	log.Debug("validating token")
+	claims, err := ao.validateToken(token)
+	if err != nil {
+		return errors.Wrap(err, "cannot validate token")
+	}
+	if err := ao.saveState(state, claims); err != nil {
 		return err
 	}
 	log.Info("callback succeeded")
 	return nil
 }
 
-// Extrack idtoken and fill auth context
-func (ao *AuthOIDC) processToken(actx *auth.AuthContext, token *oauth2.Token) error {
-	log := ao.log.WithField("action", "processToken")
-	jwtToken, ok := token.Extra("id_token").(string)
-	if !ok {
-		return errors.Errorf("%s: no id_token found", ao.Name())
-	}
-	tctx, cancel := context.WithTimeout(context.Background(), time.Duration(ao.config.Timeout)*time.Second)
-	defer cancel()
-	IDToken, err := ao.verifier.Verify(tctx, jwtToken)
-	if err != nil {
-		return errors.Wrap(err, "verify error")
-	}
-	claims := map[string]interface{}{}
-	IDToken.Claims(&claims)
-	log.WithField("claims", claims).Debug("got claims")
-
+func (ao *AuthOIDC) fillAuthContext(actx *auth.AuthContext, claims map[string]interface{}) {
 	// Map user defined fields and run them thru the template
 	actx.SubjectName = ao.renderTpl(subjectName, selectString(claims, ao.config.ValueMappings.SubjectNameField))
 	for _, v := range selectStringSlice(claims, ao.config.ValueMappings.PrincipalsField) {
@@ -247,8 +236,26 @@ func (ao *AuthOIDC) processToken(actx *auth.AuthContext, token *oauth2.Token) er
 	actx.Extensions = ao.config.Extensions
 
 	actx.Status = auth.StatusCompleted
+}
 
-	return nil
+// Extrack idtoken and fill auth context
+func (ao *AuthOIDC) validateToken(token *oauth2.Token) (map[string]interface{}, error) {
+	log := ao.log.WithField("action", "validateToken")
+	jwtToken, ok := token.Extra("id_token").(string)
+	if !ok {
+		return nil, errors.Errorf("%s: no id_token found", ao.Name())
+	}
+	tctx, cancel := context.WithTimeout(context.Background(), time.Duration(ao.config.Timeout)*time.Second)
+	defer cancel()
+	IDToken, err := ao.verifier.Verify(tctx, jwtToken)
+	if err != nil {
+		return nil, errors.Wrap(err, "verify error")
+	}
+	claims := map[string]interface{}{}
+	IDToken.Claims(&claims)
+	log.WithField("claims", claims).Debug("got claims")
+
+	return claims, nil
 }
 
 func (ao *AuthOIDC) renderTpl(name string, data interface{}) string {
