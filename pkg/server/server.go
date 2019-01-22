@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -32,13 +33,41 @@ func (s *Server) Start() error {
 	var err error
 	log := Log.WithField("server_version", globals.Version())
 	s.web.Logger.SetOutput(ioutil.Discard)
-	certFile, keyFile := s.config.TLSCertFile, s.config.TLSKeyFile
-	if certFile != "" && keyFile != "" {
-		log.WithField("listen", fmt.Sprintf("https://%s", s.config.Listen)).Info("server starting")
-		err = s.web.StartTLS(s.config.Listen, certFile, keyFile)
+
+	cc, err := s.config.GetCertificateMap()
+	if err != nil {
+		return errors.Wrap(err, "invalid certificate configuration")
+	}
+
+	if len(cc.Certificates) > 0 {
+		// Configure TLSServer before starting
+		tlsServer := s.web.TLSServer
+		tlsServer.TLSConfig = new(tls.Config)
+
+		if len(cc.Certificates) == 1 {
+			tlsServer.TLSConfig.Certificates = make([]tls.Certificate, 1)
+			tlsServer.TLSConfig.Certificates[0] = cc.Certificates[0]
+		} else {
+			tlsServer.TLSConfig.NameToCertificate = cc.CertificateMap
+			tlsServer.TLSConfig.Certificates = cc.Certificates
+		}
+
+		tlsServer.Addr = s.config.Listen
+		if !s.web.DisableHTTP2 {
+			tlsServer.TLSConfig.NextProtos = append(tlsServer.TLSConfig.NextProtos, "h2")
+		}
+		log.WithField("listen", fmt.Sprintf("https://%s", s.config.Listen)).WithField(
+			"certificates", fmt.Sprintf("%d", len(cc.Certificates))).Info("server starting")
+
+		err = s.web.StartServer(tlsServer)
+		if err != nil {
+			return errors.Wrap(err, "cannot start server")
+		}
+		log.WithField("listen", fmt.Sprintf("https://%s", s.config.Listen)).Info("server terminated")
 	} else {
 		log.WithField("listen", fmt.Sprintf("http://%s", s.config.Listen)).Warn("server starting without TLS")
 		err = s.web.Start(s.config.Listen)
+		log.WithField("listen", fmt.Sprintf("http://%s", s.config.Listen)).Info("server terminated")
 	}
 	if err != nil {
 		return errors.Wrap(err, "cannot start server")
