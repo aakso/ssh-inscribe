@@ -63,11 +63,9 @@ func (s *Server) Start() error {
 		if err != nil {
 			return errors.Wrap(err, "cannot start server")
 		}
-		log.WithField("listen", fmt.Sprintf("https://%s", s.config.Listen)).Info("server terminated")
 	} else {
 		log.WithField("listen", fmt.Sprintf("http://%s", s.config.Listen)).Warn("server starting without TLS")
 		err = s.web.Start(s.config.Listen)
-		log.WithField("listen", fmt.Sprintf("http://%s", s.config.Listen)).Info("server terminated")
 	}
 	if err != nil {
 		return errors.Wrap(err, "cannot start server")
