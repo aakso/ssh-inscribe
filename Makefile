@@ -1,4 +1,5 @@
 BUILDDIR = build
+DISTDIR = dist
 FAKEROOT_SERVER = $(BUILDDIR)/fakeroot_server
 FAKEROOT_CLIENT = $(BUILDDIR)/fakeroot_client
 PKG_OS = linux
@@ -19,12 +20,19 @@ PKG_USER = sshi
 PKG_GROUP = sshi
 PKG_VARDIR = /var/lib/ssh-inscribe
 PKG_BIN_SUFFIX =
+GO_VERSION = 1.15.5
+GOFLAGS=-mod=vendor
+
+LDFLAGS += -X github.com/aakso/ssh-inscribe/pkg/globals.confDir=/$(PKG_ETC)
 
 PKG_FILES_SERVER = $(PKG_BIN_SSHID) \
 	$(PKG_SERVICE_SSHID)
 
 PKG_FILES_CLIENT = $(PKG_BIN_SSHI)
 HUBARTIFACTS = $(shell find $(BUILDDIR) -d 1 -name "ssh-inscribe*" -o -d 1 -name "sshi*" | xargs -n 1 echo -n " -a ")
+
+BUILDER_IMAGE_NAME ?= sshi_builder_image
+BUILDER_CONTAINER_NAME ?= sshi_builder
 
 define PRE_INSTALL_SERVER
 getent group $(PKG_GROUP) || groupadd -r $(PKG_GROUP)
@@ -43,22 +51,32 @@ export POST_INSTALL_SERVER
 
 build-server: $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH)
 
+$(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH): LDFLAGS += -X github.com/aakso/ssh-inscribe/pkg/globals.varDir=$(PKG_VARDIR)
+$(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH): LDFLAGS += -X github.com/aakso/ssh-inscribe/pkg/globals.confDir=/$(PKG_ETC)
+$(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH): LDFLAGS += -X github.com/aakso/ssh-inscribe/pkg/globals.version=$(PKG_VERSION)
 $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH):
-	GOOS=$(PKG_OS) go build \
-		-ldflags '\
-			-X github.com/aakso/ssh-inscribe/pkg/globals.varDir=$(PKG_VARDIR) \
-			-X github.com/aakso/ssh-inscribe/pkg/globals.confDir=/$(PKG_ETC) \
-			-X github.com/aakso/ssh-inscribe/pkg/globals.version=$(PKG_VERSION) \
-		' \
-		-o $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH)$(PKG_BIN_SUFFIX) main.go
+	GOOS=$(PKG_OS) GOFLAGS="$(GOFLAGS)" go build -ldflags '$(LDFLAGS)' \
+		-o $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH)$(PKG_BIN_SUFFIX) .
 
 build-client: $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH)
+
+$(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH): LDFLAGS += -X github.com/aakso/ssh-inscribe/pkg/globals.version=$(PKG_VERSION)
 $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH):
-	GOOS=$(PKG_OS) go build \
-		-ldflags '\
-			-X github.com/aakso/ssh-inscribe/pkg/globals.version=$(PKG_VERSION) \
-		' \
-		-o $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH)$(PKG_BIN_SUFFIX) cliclient/sshi/main.go
+	GOOS=$(PKG_OS) GOFLAGS="$(GOFLAGS)" go build -ldflags '$(LDFLAGS)' \
+		-o $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH)$(PKG_BIN_SUFFIX) ./cliclient/sshi
+
+.PHONY: dist
+dist:
+	@rm -rf $(DISTDIR)
+	docker build -t $(BUILDER_IMAGE_NAME) -f docker/Dockerfile.builder --build-arg "GO_VERSION=$(GO_VERSION)" .
+	@mkdir -p $(DISTDIR)
+	@docker rm -f $(BUILDER_CONTAINER_NAME) || true
+	docker run -d --rm --name=$(BUILDER_CONTAINER_NAME) $(BUILDER_IMAGE_NAME) /bin/sleep 1800
+	docker exec $(BUILDER_CONTAINER_NAME) make clean-build linux darwin windows rpm \
+		PKG_VERSION="$(PKG_VERSION)" \
+		PKG_SHORT_VERSION="$(PKG_SHORT_VERSION)"
+
+	docker exec $(BUILDER_CONTAINER_NAME) tar -C $(BUILDDIR) -c . | tar -C $(DISTDIR) -x
 
 .PHONY: linux
 linux:
@@ -144,6 +162,17 @@ test:
 	go test $(shell git grep  -l '!race' ./pkg | xargs -n 1 dirname | uniq | sed 's/^/\.\//')
 	go test -race ./pkg/...
 
-.PHONY: clean
-clean:
+
+.PHONY: clean-builder
+clean-builder:
+	docker rm -f $(BUILDER_CONTAINER_NAME) || true
+	docker rmi $(BUILDER_IMAGE_NAME) || true
+
+
+.PHONY: clean-build
+clean-build:
 	rm -rf $(BUILDDIR)
+	rm -rf $(DISTDIR)
+
+.PHONY: clean
+clean: clean-builder clean-build
