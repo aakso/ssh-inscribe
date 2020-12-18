@@ -22,19 +22,21 @@ import (
 
 	"golang.org/x/crypto/ed25519"
 
-	"github.com/aakso/ssh-inscribe/pkg/globals"
-	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/labstack/gommon/log"
 
+	"github.com/aakso/ssh-inscribe/pkg/globals"
+	"github.com/aakso/ssh-inscribe/pkg/util"
+
 	"github.com/ScaleFT/sshkeys"
-	"github.com/aakso/ssh-inscribe/pkg/auth"
-	"github.com/aakso/ssh-inscribe/pkg/server/signapi/objects"
-	"github.com/blang/semver"
-	"github.com/go-resty/resty"
+	"github.com/blang/semver/v4"
 	"github.com/pkg/errors"
 	"github.com/skratchdot/open-golang/open"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+	"gopkg.in/resty.v1"
+
+	"github.com/aakso/ssh-inscribe/pkg/auth"
+	"github.com/aakso/ssh-inscribe/pkg/server/signapi/objects"
 )
 
 const (
@@ -228,7 +230,7 @@ func (c *Client) addCAKey() error {
 	}
 	opts := &sshkeys.MarshalOptions{}
 	switch key.(type) {
-	case ed25519.PrivateKey:
+	case *ed25519.PrivateKey:
 		opts.Format = sshkeys.FormatOpenSSHv1
 	default:
 		opts.Format = sshkeys.FormatClassicPEM
@@ -273,10 +275,13 @@ func (c *Client) generate() error {
 		}
 	case "ed25519":
 		log = log.WithField("size", ed25519.PrivateKeySize)
-		_, key, err = ed25519.GenerateKey(rand.Reader)
+		_, edKey, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			return errors.Wrap(err, "could not generate RSA key")
 		}
+		// Workaround: store ed25519 as pointer to slice as that is what
+		// golang.org/x/crypto/ssh parsing functions return
+		key = &edKey
 	}
 	log.Debug("generated keypair")
 	c.userPrivateKey = key
@@ -325,16 +330,8 @@ func (c *Client) storeInAgent() error {
 	if c.userCert.ValidBefore != 0 {
 		lifetime = uint32(time.Until(time.Unix(int64(c.userCert.ValidBefore), 0)).Seconds())
 	}
-	// We need to pass pointer to the byte slice when adding ed25519 key
-	var pkey interface{}
-	switch key := c.userPrivateKey.(type) {
-	case ed25519.PrivateKey:
-		pkey = &key
-	default:
-		pkey = c.userPrivateKey
-	}
 	addedKey := agent.AddedKey{
-		PrivateKey:       pkey,
+		PrivateKey:       c.userPrivateKey,
 		Certificate:      c.userCert,
 		Comment:          AgentComment,
 		LifetimeSecs:     lifetime,
@@ -357,7 +354,7 @@ func (c *Client) storeInAgent() error {
 	// Microsoft ssh-agent seems to overwrite the certificate
 	if !keyInAgent && !microsoftSSHAgent {
 		addedKey = agent.AddedKey{
-			PrivateKey:       pkey,
+			PrivateKey:       c.userPrivateKey,
 			Comment:          AgentComment,
 			LifetimeSecs:     lifetime,
 			ConfirmBeforeUse: c.Config.AgentConfirm,
@@ -408,7 +405,7 @@ func (c *Client) storeInFile() error {
 		defer fhPriv.Close()
 		opts := &sshkeys.MarshalOptions{}
 		switch c.userPrivateKey.(type) {
-		case ed25519.PrivateKey:
+		case *ed25519.PrivateKey:
 			opts.Format = sshkeys.FormatOpenSSHv1
 		default:
 			opts.Format = sshkeys.FormatClassicPEM
@@ -628,8 +625,7 @@ func (c *Client) authenticate() error {
 // Parse private key and decrypt it if necessary
 func (c *Client) parsePrivateKey(raw []byte, desc string) (interface{}, error) {
 	var (
-		// TODO: implement IsPrivateKeyEncrypted or similar functionality to ScaleFT/sshkeys
-		secret []byte = []byte(" ")
+		secret []byte
 		key    interface{}
 		err    error
 	)
@@ -637,14 +633,18 @@ func (c *Client) parsePrivateKey(raw []byte, desc string) (interface{}, error) {
 outer:
 	for {
 		key, err = sshkeys.ParseEncryptedRawPrivateKey(raw, secret)
-		switch {
-		case err == sshkeys.ErrIncorrectPassword && !haveSecret:
+		switch err := err.(type) {
+		case *ssh.PassphraseMissingError:
+			if haveSecret {
+				return nil, err
+			}
 			log.Debug("encrypted identity file")
 			secret = c.getCredential("private key", desc, CredentialTypePassword, "")
 			haveSecret = true
-		case err == nil:
-			break outer
 		default:
+			if err == nil {
+				break outer
+			}
 			return nil, err
 		}
 	}

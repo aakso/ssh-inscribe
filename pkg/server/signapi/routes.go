@@ -3,8 +3,8 @@ package signapi
 import (
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	jwt "github.com/dgrijalva/jwt-go"
-	"github.com/labstack/echo"
-	"github.com/labstack/echo/middleware"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/random"
 )
 
