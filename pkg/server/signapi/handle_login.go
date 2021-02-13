@@ -98,5 +98,5 @@ func (sa *SignApi) HandleAuthCallback(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err)
 	}
 
-	return c.String(http.StatusOK, "Authentication successfull, you can close the window now")
+	return c.String(http.StatusOK, "Authentication successful, you can close the window now")
 }
