@@ -30,6 +30,7 @@ var ReqCmd = &cobra.Command{
 		}
 		return c.Login()
 	},
+	ValidArgsFunction: noCompletion,
 }
 
 func init() {
@@ -41,6 +42,12 @@ func init() {
 		os.Getenv("SSH_INSCRIBE_IDENTITY"),
 		"Identity (private key) file location. Required if --generate is unset ($SSH_INSCRIBE_IDENTITY)",
 	)
+	_ = ReqCmd.RegisterFlagCompletionFunc("identity", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		if toComplete == "" {
+			return []string{"~/.ssh/"}, cobra.ShellCompDirectiveNoSpace
+		}
+		return nil, cobra.ShellCompDirectiveDefault
+	})
 
 	if os.Getenv("SSH_INSCRIBE_WRITE") != "" {
 		ClientConfig.WriteCert = true
