@@ -29,6 +29,7 @@ var versionCmd = &cobra.Command{
 		}
 		return nil
 	},
+	ValidArgsFunction: noCompletion,
 }
 
 func init() {

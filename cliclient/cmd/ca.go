@@ -39,6 +39,7 @@ var ShowCaCmd = &cobra.Command{
 		}
 		return nil
 	},
+	ValidArgsFunction: noCompletion,
 }
 
 var AddCaCmd = &cobra.Command{
@@ -67,5 +68,6 @@ func init() {
 		nil,
 		"Format ca public key with allowed principals for use with authorized_keys",
 	)
+	_ = ShowCaCmd.RegisterFlagCompletionFunc("principals", noCompletion)
 	CaCmd.AddCommand(AddCaCmd)
 }

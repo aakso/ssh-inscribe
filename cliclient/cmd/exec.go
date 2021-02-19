@@ -31,6 +31,7 @@ var ExecCmd = &cobra.Command{
 		ignoreFlagsAfter("exec")
 		return runExecCommand(RootCmd.Flags().Args()[2:])
 	},
+	ValidArgsFunction: noCompletion,
 }
 var agentListener net.Listener
 var wg = new(sync.WaitGroup)
