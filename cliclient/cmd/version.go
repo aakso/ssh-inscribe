@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// serverCmd represents the server command
+// versionCmd represents the version command
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show server version",

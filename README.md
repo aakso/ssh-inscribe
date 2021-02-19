@@ -90,7 +90,7 @@ Refer to `sshd_options` man page and look for `TrustedUserCAKeys` and
 ## Use the client
 Recommended way to use the client is to have `ssh-agent` running.
 However keyfiles are also supported. Most options are also settable as
-environmet variables. Check `sshi --help` and `sshi req --help` for up
+environment variables. Check `sshi --help` and `sshi req --help` for up
 to date list.
 
 You should at least set `SSH_INSCRIBE_URL` in your profile so you can
