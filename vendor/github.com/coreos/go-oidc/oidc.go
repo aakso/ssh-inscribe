@@ -3,9 +3,13 @@ package oidc
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io/ioutil"
 	"mime"
 	"net/http"
@@ -29,6 +33,11 @@ const (
 	//
 	// See: https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
 	ScopeOfflineAccess = "offline_access"
+)
+
+var (
+	errNoAtHash      = errors.New("id token did not have an access token hash")
+	errInvalidAtHash = errors.New("access token hash does not match value in ID token")
 )
 
 // ClientContext returns a new Context that carries the provided HTTP client.
@@ -60,11 +69,12 @@ type Provider struct {
 	authURL     string
 	tokenURL    string
 	userInfoURL string
+	algorithms  []string
 
 	// Raw claims returned by the server.
 	rawClaims []byte
 
-	remoteKeySet *remoteKeySet
+	remoteKeySet KeySet
 }
 
 type cachedKeys struct {
@@ -73,11 +83,27 @@ type cachedKeys struct {
 }
 
 type providerJSON struct {
-	Issuer      string `json:"issuer"`
-	AuthURL     string `json:"authorization_endpoint"`
-	TokenURL    string `json:"token_endpoint"`
-	JWKSURL     string `json:"jwks_uri"`
-	UserInfoURL string `json:"userinfo_endpoint"`
+	Issuer      string   `json:"issuer"`
+	AuthURL     string   `json:"authorization_endpoint"`
+	TokenURL    string   `json:"token_endpoint"`
+	JWKSURL     string   `json:"jwks_uri"`
+	UserInfoURL string   `json:"userinfo_endpoint"`
+	Algorithms  []string `json:"id_token_signing_alg_values_supported"`
+}
+
+// supportedAlgorithms is a list of algorithms explicitly supported by this
+// package. If a provider supports other algorithms, such as HS256 or none,
+// those values won't be passed to the IDTokenVerifier.
+var supportedAlgorithms = map[string]bool{
+	RS256: true,
+	RS384: true,
+	RS512: true,
+	ES256: true,
+	ES384: true,
+	ES512: true,
+	PS256: true,
+	PS384: true,
+	PS512: true,
 }
 
 // NewProvider uses the OpenID Connect discovery mechanism to construct a Provider.
@@ -114,13 +140,20 @@ func NewProvider(ctx context.Context, issuer string) (*Provider, error) {
 	if p.Issuer != issuer {
 		return nil, fmt.Errorf("oidc: issuer did not match the issuer returned by provider, expected %q got %q", issuer, p.Issuer)
 	}
+	var algs []string
+	for _, a := range p.Algorithms {
+		if supportedAlgorithms[a] {
+			algs = append(algs, a)
+		}
+	}
 	return &Provider{
 		issuer:       p.Issuer,
 		authURL:      p.AuthURL,
 		tokenURL:     p.TokenURL,
 		userInfoURL:  p.UserInfoURL,
+		algorithms:   algs,
 		rawClaims:    body,
-		remoteKeySet: newRemoteKeySet(ctx, p.JWKSURL, time.Now),
+		remoteKeySet: NewRemoteKeySet(ctx, p.JWKSURL),
 	}, nil
 }
 
@@ -242,8 +275,19 @@ type IDToken struct {
 	// and it's the user's responsibility to ensure it contains a valid value.
 	Nonce string
 
+	// at_hash claim, if set in the ID token. Callers can verify an access token
+	// that corresponds to the ID token using the VerifyAccessToken method.
+	AccessTokenHash string
+
+	// signature algorithm used for ID token, needed to compute a verification hash of an
+	// access token
+	sigAlgorithm string
+
 	// Raw payload of the id_token.
 	claims []byte
+
+	// Map of distributed claim names to claim sources
+	distributedClaims map[string]claimSource
 }
 
 // Claims unmarshals the raw JSON payload of the ID Token into a provided struct.
@@ -267,13 +311,50 @@ func (i *IDToken) Claims(v interface{}) error {
 	return json.Unmarshal(i.claims, v)
 }
 
+// VerifyAccessToken verifies that the hash of the access token that corresponds to the iD token
+// matches the hash in the id token. It returns an error if the hashes  don't match.
+// It is the caller's responsibility to ensure that the optional access token hash is present for the ID token
+// before calling this method. See https://openid.net/specs/openid-connect-core-1_0.html#CodeIDToken
+func (i *IDToken) VerifyAccessToken(accessToken string) error {
+	if i.AccessTokenHash == "" {
+		return errNoAtHash
+	}
+	var h hash.Hash
+	switch i.sigAlgorithm {
+	case RS256, ES256, PS256:
+		h = sha256.New()
+	case RS384, ES384, PS384:
+		h = sha512.New384()
+	case RS512, ES512, PS512:
+		h = sha512.New()
+	default:
+		return fmt.Errorf("oidc: unsupported signing algorithm %q", i.sigAlgorithm)
+	}
+	h.Write([]byte(accessToken)) // hash documents that Write will never return an error
+	sum := h.Sum(nil)[:h.Size()/2]
+	actual := base64.RawURLEncoding.EncodeToString(sum)
+	if actual != i.AccessTokenHash {
+		return errInvalidAtHash
+	}
+	return nil
+}
+
 type idToken struct {
-	Issuer   string   `json:"iss"`
-	Subject  string   `json:"sub"`
-	Audience audience `json:"aud"`
-	Expiry   jsonTime `json:"exp"`
-	IssuedAt jsonTime `json:"iat"`
-	Nonce    string   `json:"nonce"`
+	Issuer       string                 `json:"iss"`
+	Subject      string                 `json:"sub"`
+	Audience     audience               `json:"aud"`
+	Expiry       jsonTime               `json:"exp"`
+	IssuedAt     jsonTime               `json:"iat"`
+	NotBefore    *jsonTime              `json:"nbf"`
+	Nonce        string                 `json:"nonce"`
+	AtHash       string                 `json:"at_hash"`
+	ClaimNames   map[string]string      `json:"_claim_names"`
+	ClaimSources map[string]claimSource `json:"_claim_sources"`
+}
+
+type claimSource struct {
+	Endpoint    string `json:"endpoint"`
+	AccessToken string `json:"access_token"`
 }
 
 type audience []string

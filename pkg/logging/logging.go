@@ -34,6 +34,14 @@ func setLevel(pkg string, level logrus.Level) {
 	}
 }
 
+func GetAvailableLevelNames() []string {
+	lns := make([]string, len(logrus.AllLevels))
+	for i, lvl := range logrus.AllLevels {
+		lns[i] = lvl.String()
+	}
+	return lns
+}
+
 func Setup() error {
 	var (
 		level     logrus.Level
@@ -70,7 +78,8 @@ func Setup() error {
 
 	level, err = logrus.ParseLevel(strings.ToLower(conf.DefaultLevel))
 	if err != nil {
-		return errors.Errorf("unknown log level: %q, available: panic, fatal, error, warn, info, debug", conf.DefaultLevel)
+		return errors.Errorf("unknown log level: %q, available: %s",
+			conf.DefaultLevel, strings.Join(GetAvailableLevelNames(), ", "))
 	}
 
 	switch strings.ToLower(conf.Format) {

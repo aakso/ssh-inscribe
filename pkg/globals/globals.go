@@ -4,7 +4,7 @@ import (
 	"os"
 	"path"
 
-	"github.com/blang/semver"
+	"github.com/blang/semver/v4"
 )
 
 // Override thru linker -X flag if needed

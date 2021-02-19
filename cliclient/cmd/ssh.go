@@ -12,6 +12,7 @@ var SshCmd = &cobra.Command{
 		ignoreFlagsAfter("ssh")
 		return runExecCommand(RootCmd.Flags().Args()[1:])
 	},
+	ValidArgsFunction: noCompletion,
 }
 
 func init() {

@@ -70,6 +70,7 @@ func init() {
 		os.Getenv("SSH_INSCRIBE_URL"),
 		"URL to ssh-inscribed ($SSH_INSCRIBE_URL)",
 	)
+	_ = RootCmd.RegisterFlagCompletionFunc("url", noCompletion)
 
 	defTimeout := ClientConfig.Timeout
 	if expire := os.Getenv("SSH_INSCRIBE_TIMEOUT"); expire != "" {
@@ -81,6 +82,7 @@ func init() {
 		defTimeout,
 		"Client timeout ($SSH_INSCRIBE_TIMEOUT)",
 	)
+	_ = RootCmd.RegisterFlagCompletionFunc("timeout", noCompletion)
 
 	retries := ClientConfig.Retries
 	if os.Getenv("SSH_INSCRIBE_RETRIES") != "" {
@@ -92,6 +94,7 @@ func init() {
 		retries,
 		"Set retry on server failure ($SSH_INSCRIBE_RETRIES)",
 	)
+	_ = RootCmd.RegisterFlagCompletionFunc("retries", noCompletion)
 
 	if os.Getenv("SSH_INSCRIBE_DEBUG") != "" {
 		ClientConfig.Debug = true
@@ -122,6 +125,9 @@ func init() {
 		logLevel,
 		"Set logging level ($SSH_INSCRIBE_LOGLEVEL)",
 	)
+	_ = RootCmd.RegisterFlagCompletionFunc("loglevel", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return logging.GetAvailableLevelNames(), cobra.ShellCompDirectiveNoFileComp
+	})
 
 	if os.Getenv("SSH_INSCRIBE_QUIET") != "" {
 		ClientConfig.Quiet = true
@@ -155,6 +161,21 @@ func init() {
 		defLoginAuthEndpoints,
 		"Login to specific auth endpoints ($SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS)",
 	)
+	_ = RootCmd.RegisterFlagCompletionFunc("login", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		c := &client.Client{
+			Config: ClientConfig,
+		}
+		defer c.Close()
+		discoverResult, err := c.GetAuthenticators()
+		if err != nil {
+			return nil, cobra.ShellCompDirectiveError
+		}
+		names := make([]string, len(discoverResult))
+		for i, v := range discoverResult {
+			names[i] = v.AuthenticatorName
+		}
+		return names, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	var defIncludePrincipals string
 	if s := os.Getenv("SSH_INSCRIBE_INCLUDE_PRINCIPALS"); s != "" {
@@ -166,6 +187,7 @@ func init() {
 		defIncludePrincipals,
 		"Request only principals matching the glob pattern to be included ($SSH_INSCRIBE_INCLUDE_PRINCIPALS)",
 	)
+	_ = RootCmd.RegisterFlagCompletionFunc("include", noCompletion)
 
 	var defExcludePrincipals string
 	if s := os.Getenv("SSH_INSCRIBE_EXCLUDE_PRINCIPALS"); s != "" {
@@ -177,6 +199,7 @@ func init() {
 		defExcludePrincipals,
 		"Request only principals not matching the glob pattern to be included ($SSH_INSCRIBE_EXCLUDE_PRINCIPALS)",
 	)
+	_ = RootCmd.RegisterFlagCompletionFunc("exclude", noCompletion)
 
 	var defExpire time.Duration
 	if expire := os.Getenv("SSH_INSCRIBE_EXPIRE"); expire != "" {
@@ -189,6 +212,7 @@ func init() {
 		defExpire,
 		"Request specific lifetime. Example '10m' ($SSH_INSCRIBE_EXPIRE)",
 	)
+	_ = RootCmd.RegisterFlagCompletionFunc("expire", noCompletion)
 
 	if kt := os.Getenv("SSH_INSCRIBE_GENKEY_TYPE"); kt != "" {
 		ClientConfig.GenerateKeypairType = kt
@@ -200,6 +224,9 @@ func init() {
 		ClientConfig.GenerateKeypairType,
 		"Set ad-hoc keypair type. Valid values: rsa, ed25519 ($SSH_INSCRIBE_GENKEY_TYPE)",
 	)
+	_ = RootCmd.RegisterFlagCompletionFunc("keytype", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"rsa", "ed25519"}, cobra.ShellCompDirectiveNoFileComp
+	})
 
 	if ks := os.Getenv("SSH_INSCRIBE_GENKEY_SIZE"); ks != "" {
 		size, _ := strconv.ParseInt(ks, 10, 0)
@@ -212,4 +239,12 @@ func init() {
 		ClientConfig.GenerateKeypairSize,
 		"Set ad-hoc keypair size. Only valid for RSA keytype ($SSH_INSCRIBE_GENKEY_SIZE)",
 	)
+	_ = RootCmd.RegisterFlagCompletionFunc("keysize", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		var sizes []string
+		if ClientConfig.GenerateKeypairType == "rsa" {
+			// Opinionated set, non-exhaustive
+			sizes = []string{"2048", "3072", "4096", "8192"}
+		}
+		return sizes, cobra.ShellCompDirectiveNoFileComp
+	})
 }

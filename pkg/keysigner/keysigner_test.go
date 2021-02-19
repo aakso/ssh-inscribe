@@ -78,7 +78,7 @@ mU5fO7aSgagjS0fJXWqa2w8oYFTG1dGDg+H0tHvYyH7dTPtEfhM8FV8=
 	testCaPrivate        interface{}
 	testCaPrivateInvalid interface{}
 	socketPath           string = path.Join(os.TempDir(), "keysignertest")
-	certValidBefore      uint64 = uint64(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
+	certValidBefore      uint64 = uint64(time.Date(2050, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
 
 	socketPathSmartCard string = path.Join(os.TempDir(), "keysignertestsmartcard")
 	smartCardId                = os.Getenv("TEST_SMARTCARD_ID")

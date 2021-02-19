@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/aakso/ssh-inscribe/pkg/server/signapi/objects"
-	"github.com/labstack/echo"
+	"github.com/labstack/echo/v4"
 )
 
 func (sa *SignApi) HandleAuthDiscover(c echo.Context) error {
