@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -94,7 +95,23 @@ func (c *Client) AddCA() error {
 	if err := c.authenticate(); err != nil {
 		return errors.Wrap(err, "could not add ca")
 	}
+	if c.Config.CAChallenge {
+		return c.caChallenge()
+	}
 	return c.addCAKey()
+}
+
+func (c *Client) ChallengeResponse() error {
+	if err := c.initREST(); err != nil {
+		return errors.Wrap(err, "could not add ca")
+	}
+	if err := c.checkVersion(); err != nil {
+		return errors.Wrap(err, "could not add ca")
+	}
+	if err := c.authenticate(); err != nil {
+		return errors.Wrap(err, "could not add ca")
+	}
+	return c.sendChallengeResponse()
 }
 
 func (c *Client) GetCA() (ssh.PublicKey, error) {
@@ -220,9 +237,25 @@ func (c *Client) Login() error {
 func (c *Client) addCAKey() error {
 	log := Log.WithField("action", "addCAKey")
 	log.Debug("reading ca key file")
-	content, err := ioutil.ReadFile(c.Config.CAKeyFile)
-	if err != nil {
-		return errors.Wrap(err, "could not open ca key file")
+	var (
+		content []byte
+		err     error
+	)
+	if c.Config.CAKeyFile == "" {
+		fmt.Println("Paste in the private key. End of file terminates (Ctrl+d).")
+		err = readMultipleLines("> ", func(l []byte) bool {
+			content = append(content, l...)
+			content = append(content, '\n')
+			return true
+		})
+		if err != nil {
+			return err
+		}
+	} else {
+		content, err = ioutil.ReadFile(c.Config.CAKeyFile)
+		if err != nil {
+			return errors.Wrap(err, "could not open ca key file")
+		}
 	}
 	key, err := c.parsePrivateKey(content, "CA private key")
 	if err != nil {
@@ -251,6 +284,66 @@ func (c *Client) addCAKey() error {
 		return errors.Errorf("could not send key, got code %d and message: %s", res.StatusCode(), res.Body())
 	}
 	log.Debug("sent ca key to the server")
+	return nil
+}
+
+func (c *Client) caChallenge() error {
+	log := Log.WithField("action", "addCAKeyViaChallenge")
+	log.Debug("reading ca key file")
+	var (
+		content []byte
+		err     error
+	)
+	if c.Config.CAKeyFile == "" {
+		fmt.Println("Paste in the private key. End of file terminates (Ctrl+d).")
+		err = readMultipleLines("> ", func(l []byte) bool {
+			content = append(content, l...)
+			content = append(content, '\n')
+			return true
+		})
+		if err != nil {
+			return err
+		}
+	} else {
+		content, err = ioutil.ReadFile(c.Config.CAKeyFile)
+		if err != nil {
+			return errors.Wrap(err, "could not open ca key file")
+		}
+	}
+	log.Debug("sending ca key to the server to initiate challenge")
+	log.Debug(string(content))
+	res, err := c.newReq().
+		SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken)).
+		SetBody(content).
+		Post(c.urlFor("ca") + "?init_challenge=true")
+	if err != nil {
+		return errors.Wrap(err, "could not send key")
+	}
+	if res.StatusCode() != http.StatusAccepted {
+		return errors.Errorf("could not send key, got code %d and message: %s", res.StatusCode(), res.Body())
+	}
+	log.Debug("initiated a CA challenge")
+	fmt.Printf("Challenge:\n%v\n", string(res.Body()))
+	return nil
+}
+
+func (c *Client) sendChallengeResponse() error {
+	log := Log.WithField("action", "sendChallengeResponse")
+	challenge := c.getCredential("ca-challenge", "signer", "challenge", "")
+	response := c.getCredential("ca-challenge-response", "signer", CredentialTypePassword, "")
+	log.Debug("sending challenge-response to the server")
+	res, err := c.newReq().
+		SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken)).
+		SetBody(challenge).
+		SetBasicAuth("", string(response)).
+		Post(c.urlFor("ca/response"))
+	if err != nil {
+		return errors.Wrap(err, "could not send challenge-response")
+	}
+	if res.StatusCode() != http.StatusOK {
+		return errors.Errorf("could not send challenge-response, got code %d and message: %s", res.StatusCode(), res.Body())
+	}
+	log.Debug("sent challenge-response to the server")
 	return nil
 }
 
@@ -1105,4 +1198,24 @@ func shallowCertChecker(cert *ssh.Certificate, authority ssh.PublicKey) bool {
 		return false
 	}
 	return true
+}
+
+func readMultipleLines(prompt string, cb func(l []byte) bool) error {
+	rl, err := readline.New(prompt)
+	if err != nil {
+		return err
+	}
+	for {
+		line, err := rl.ReadSlice()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return err
+		}
+		if !cb(line) {
+			break
+		}
+	}
+	return nil
 }

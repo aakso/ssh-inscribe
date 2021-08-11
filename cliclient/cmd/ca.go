@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/aakso/ssh-inscribe/pkg/client"
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/aakso/ssh-inscribe/pkg/client"
 )
 
 var principals []string
@@ -43,18 +43,31 @@ var ShowCaCmd = &cobra.Command{
 }
 
 var AddCaCmd = &cobra.Command{
-	Use:   "add",
+	Use:   "add [caKeyFile]",
 	Short: "Add CA private key from file",
+	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) != 1 {
-			return errors.New("specify ca key file")
+		if len(args) > 0 {
+			ClientConfig.CAKeyFile = args[0]
 		}
-		ClientConfig.CAKeyFile = args[0]
 		c := &client.Client{
 			Config: ClientConfig,
 		}
 		defer c.Close()
 		return c.AddCA()
+	},
+}
+
+var ResponseCmd = &cobra.Command{
+	Use:   "response",
+	Short: "Send a response to a CA challenge in order to decrypt and add the CA key",
+	Args:  cobra.MaximumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		c := &client.Client{
+			Config: ClientConfig,
+		}
+		defer c.Close()
+		return c.ChallengeResponse()
 	},
 }
 
@@ -69,5 +82,10 @@ func init() {
 		"Format ca public key with allowed principals for use with authorized_keys",
 	)
 	_ = ShowCaCmd.RegisterFlagCompletionFunc("principals", noCompletion)
+
+	AddCaCmd.Flags().BoolVarP(&ClientConfig.CAChallenge, "challenge", "c", false,
+		"Use challenge mode to decrypt an encrypted private key")
+
 	CaCmd.AddCommand(AddCaCmd)
+	CaCmd.AddCommand(ResponseCmd)
 }

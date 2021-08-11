@@ -1,6 +1,9 @@
 package signapi
 
 import (
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"time"
 
 	"github.com/golang-jwt/jwt"
@@ -27,6 +30,8 @@ type SignApi struct {
 	tkey            []byte
 	defaultCertLife time.Duration
 	maxCertLife     time.Duration
+	caChallengeLife time.Duration
+	caChallengeKey  crypto.Signer
 }
 
 func New(
@@ -35,11 +40,17 @@ func New(
 	tkey []byte,
 	defaultlife time.Duration,
 	maxlife time.Duration,
+	caChallengeLife time.Duration,
 ) *SignApi {
 
 	authMap := map[string]auth.Authenticator{}
 	for _, v := range authList {
 		authMap[v.Authenticator.Name()] = v.Authenticator
+	}
+
+	caChallengeKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		panic(err.Error())
 	}
 
 	return &SignApi{
@@ -49,6 +60,8 @@ func New(
 		tkey:            tkey,
 		defaultCertLife: defaultlife,
 		maxCertLife:     maxlife,
+		caChallengeLife: caChallengeLife,
+		caChallengeKey:  caChallengeKey,
 	}
 }
 

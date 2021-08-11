@@ -10,15 +10,16 @@ import (
 
 	"github.com/aakso/ssh-inscribe/pkg/globals"
 
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+
 	authbackend "github.com/aakso/ssh-inscribe/pkg/auth/backend"
 	"github.com/aakso/ssh-inscribe/pkg/config"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"
 	"github.com/aakso/ssh-inscribe/pkg/server/signapi"
 	"github.com/aakso/ssh-inscribe/pkg/util"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 )
 
 type Server struct {
@@ -101,6 +102,10 @@ func Build() (*Server, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "invalid DefaultCertLifetime")
 	}
+	caChallengeLife, err := time.ParseDuration(conf.CaChallengeLifetime)
+	if err != nil {
+		return nil, errors.Wrap(err, "invalid CaChallengeLifetime")
+	}
 
 	// Auth backends
 	authList := []signapi.AuthenticatorListEntry{}
@@ -139,13 +144,7 @@ func Build() (*Server, error) {
 	}
 
 	// Signing API
-	signapi := signapi.New(
-		authList,
-		signer,
-		[]byte(conf.TokenSigningKey),
-		defaultlife,
-		maxlife,
-	)
+	signapi := signapi.New(authList, signer, []byte(conf.TokenSigningKey), defaultlife, maxlife, caChallengeLife)
 
 	s := &Server{
 		config:  conf,
