@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/aakso/ssh-inscribe/pkg/auth"
-	jwt "github.com/dgrijalva/jwt-go"
+	jwt "github.com/golang-jwt/jwt"
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"

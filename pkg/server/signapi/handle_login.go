@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/aakso/ssh-inscribe/pkg/auth"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt"
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
+
+	"github.com/aakso/ssh-inscribe/pkg/auth"
 )
 
 const (

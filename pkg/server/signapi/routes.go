@@ -1,11 +1,13 @@
 package signapi
 
 import (
-	"github.com/aakso/ssh-inscribe/pkg/auth"
-	jwt "github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/random"
+	"github.com/pkg/errors"
+
+	"github.com/aakso/ssh-inscribe/pkg/auth"
 )
 
 func (sa *SignApi) RegisterRoutes(g *echo.Group) {
@@ -41,6 +43,25 @@ func jwtAuth(key []byte, claims jwt.Claims, skipIfMissing bool) echo.MiddlewareF
 		SigningKey:  key,
 		TokenLookup: "header:" + authHeader,
 		Claims:      claims,
+		// ref: echo.labstack.com/middleware/jwt/
+		ParseTokenFunc: func(auth string, c echo.Context) (interface{}, error) {
+			keyFunc := func(t *jwt.Token) (interface{}, error) {
+				if t.Method.Alg() != "HS256" {
+					return nil, errors.Errorf("unexpected jwt signing method=%v", t.Header["alg"])
+				}
+				return key, nil
+			}
+
+			// claims are of type `jwt.MapClaims` when token is created with `jwt.Parse`
+			token, err := jwt.ParseWithClaims(auth, &SignClaim{}, keyFunc)
+			if err != nil {
+				return nil, err
+			}
+			if !token.Valid {
+				return nil, errors.New("invalid token")
+			}
+			return token, nil
+		},
 	}
 	if skipIfMissing {
 		config.Skipper = func(c echo.Context) bool {

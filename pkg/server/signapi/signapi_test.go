@@ -2,6 +2,7 @@ package signapi
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,15 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aakso/ssh-inscribe/pkg/auth"
-	"github.com/aakso/ssh-inscribe/pkg/auth/backend/authmock"
-	"github.com/aakso/ssh-inscribe/pkg/keysigner"
-	"github.com/aakso/ssh-inscribe/pkg/logging"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt"
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/aakso/ssh-inscribe/pkg/auth"
+	"github.com/aakso/ssh-inscribe/pkg/auth/backend/authmock"
+	"github.com/aakso/ssh-inscribe/pkg/keysigner"
+	"github.com/aakso/ssh-inscribe/pkg/logging"
 )
 
 var (
@@ -63,16 +65,27 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 		AuthRealm:   "testrealm",
 		AuthContext: fakeAuthContext,
 	}
-	socketPath  string = path.Join(os.TempDir(), "signapitest")
-	signapi     *SignApi
-	e           *echo.Echo = echo.New()
-	signingKey  []byte     = []byte("testkey")
-	signedToken string
+	socketPath string = path.Join(os.TempDir(), "signapitest")
+	signapi    *SignApi
+	e          *echo.Echo = echo.New()
+	signingKey []byte     = []byte("testkey")
 )
 
 func TestMain(m *testing.M) {
 	logging.SetLevel(logrus.DebugLevel)
 	signer := keysigner.New(socketPath, "")
+	for i := 0; i < 3; i++ {
+		if signer.AgentPing() {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !signer.AgentPing() {
+		panic("ssh-agent not responding")
+	}
+	if err := signer.RemoveAllKeys(); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "warning: cannot remove keys: %v\n", err)
+	}
 	auths := []AuthenticatorListEntry{
 		AuthenticatorListEntry{
 			Authenticator: authenticator,
@@ -90,62 +103,57 @@ func TestMain(m *testing.M) {
 }
 
 func TestDiscovery(t *testing.T) {
-	assert := assert.New(t)
 	req, _ := http.NewRequest(echo.GET, "/v1/auth", nil)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusOK, rec.Code)
+	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestNotReady(t *testing.T) {
-	assert := assert.New(t)
 	req, _ := http.NewRequest(echo.GET, "/v1/ready", nil)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusInternalServerError, rec.Code)
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestLogin(t *testing.T) {
-	assert := assert.New(t)
 	req, _ := http.NewRequest(echo.POST, "/v1/auth/"+authenticator.Name(), nil)
 	req.SetBasicAuth(authenticator.User, string(authenticator.Secret))
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusOK, rec.Code)
-	assert.Equal("application/jwt", rec.Header().Get("Content-Type"))
-	signedToken = rec.Body.String()
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/jwt", rec.Header().Get("Content-Type"))
+	signedToken := rec.Body.String()
 	token, err := jwt.ParseWithClaims(signedToken, &SignClaim{}, func(token *jwt.Token) (interface{}, error) {
 		return signingKey, nil
 	})
-	if assert.NoError(err) {
-		assert.True(token.Valid)
+	if assert.NoError(t, err) {
+		assert.True(t, token.Valid)
 		claims, _ := token.Claims.(*SignClaim)
-		assert.Equal(claims.AuthContext.GetSubjectName(), authenticator.User)
+		assert.Equal(t, claims.AuthContext.GetSubjectName(), authenticator.User)
 	}
-}
 
-func TestMultiFactorAuth(t *testing.T) {
-	assert := assert.New(t)
-	req, _ := http.NewRequest(echo.POST, "/v1/auth/"+authenticator.Name(), nil)
-	req.SetBasicAuth(authenticator.User, string(authenticator.Secret))
-	req.Header.Set("X-Auth", "Bearer "+signedToken)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusOK, rec.Code)
-	assert.Equal("application/jwt", rec.Header().Get("Content-Type"))
-	signedToken = rec.Body.String()
-	token, err := jwt.ParseWithClaims(signedToken, &SignClaim{}, func(token *jwt.Token) (interface{}, error) {
-		return signingKey, nil
+	t.Run("TestMultiFactorAuth", func(t *testing.T) {
+		req, _ := http.NewRequest(echo.POST, "/v1/auth/"+authenticator.Name(), nil)
+		req.SetBasicAuth(authenticator.User, string(authenticator.Secret))
+		req.Header.Set("X-Auth", "Bearer "+signedToken)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "application/jwt", rec.Header().Get("Content-Type"))
+		signedToken = rec.Body.String()
+		token, err := jwt.ParseWithClaims(signedToken, &SignClaim{}, func(token *jwt.Token) (interface{}, error) {
+			return signingKey, nil
+		})
+		if assert.NoError(t, err) {
+			assert.True(t, token.Valid)
+			claims, _ := token.Claims.(*SignClaim)
+			assert.NotNil(t, claims.AuthContext.GetParent())
+		}
 	})
-	if assert.NoError(err) {
-		assert.True(token.Valid)
-		claims, _ := token.Claims.(*SignClaim)
-		assert.NotNil(claims.AuthContext.GetParent())
-	}
 }
 
 func TestLoginLongAuthContext(t *testing.T) {
-	assert := assert.New(t)
 	actx := &auth.AuthContext{Status: auth.StatusCompleted}
 	for i := 1; i <= MaxAuthContextChainLength; i++ {
 		actx = &auth.AuthContext{Parent: actx, Status: auth.StatusCompleted}
@@ -158,150 +166,143 @@ func TestLoginLongAuthContext(t *testing.T) {
 	req.Header.Set("X-Auth", "Bearer "+ss)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	_, err := jwt.ParseWithClaims(rec.Body.String(), &SignClaim{}, func(token *jwt.Token) (interface{}, error) {
 		return signingKey, nil
 	})
-	assert.Error(err, "we shouldn't have received a valid token")
+	assert.Error(t, err, "we shouldn't have received a valid token")
 }
 
-func TestSignNoKey(t *testing.T) {
-	assert := assert.New(t)
-	buf := bytes.NewBuffer(testUserPublic)
-	req, _ := http.NewRequest(echo.POST, "/v1/sign", buf)
-	req.Header.Set("X-Auth", "Bearer "+signedToken)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusInternalServerError, rec.Code)
-}
-
-func TestAddKey(t *testing.T) {
-	assert := assert.New(t)
-	buf := bytes.NewBuffer(testCaPrivatePem)
-	req, _ := http.NewRequest(echo.POST, "/v1/ca", buf)
-	req.Header.Set("X-Auth", "Bearer "+signedToken)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusAccepted, rec.Code)
-	assert.Empty(rec.Body.String())
-}
-
-func TestReady(t *testing.T) {
-	assert := assert.New(t)
-	req, _ := http.NewRequest(echo.GET, "/v1/ready", nil)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusNoContent, rec.Code)
-}
-
-func TestGetKey(t *testing.T) {
-	assert := assert.New(t)
-	req, _ := http.NewRequest(echo.GET, "/v1/ca", nil)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusOK, rec.Code)
-	assert.NotEmpty(rec.Body.String())
-}
-
-func TestSignCustomExpires(t *testing.T) {
-	assert := assert.New(t)
-	buf := bytes.NewBuffer(testUserPublic)
-	exp := time.Now().Add(5 * time.Second)
-	u, _ := url.Parse("/v1/sign")
-	q := u.Query()
-	q.Set("expires", exp.Format(time.RFC3339))
-	u.RawQuery = q.Encode()
-	req, _ := http.NewRequest(echo.POST, u.String(), buf)
-	req.Header.Set("X-Auth", "Bearer "+signedToken)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusOK, rec.Code)
-
-	raw, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
-	if assert.NoError(err) {
-		cert, _ := raw.(*ssh.Certificate)
-		assert.NotNil(cert)
-		assert.Equal(exp.Unix(), int64(cert.ValidBefore))
-	}
-}
-
-func TestSignPendingAuthContext(t *testing.T) {
-	assert := assert.New(t)
-	//
-	actx := &auth.AuthContext{
-		Parent: &auth.AuthContext{
-			Status: auth.StatusPending,
-		},
-		Status: auth.StatusCompleted,
-	}
-	token := signapi.makeToken(actx)
+func TestSigning(t *testing.T) {
+	actx := fakeAuthContext
+	actx.Status = auth.StatusCompleted
+	token := signapi.makeToken(&actx)
 	ss, _ := token.SignedString(signapi.tkey)
 
-	u, _ := url.Parse("/v1/sign")
-	req, _ := http.NewRequest(echo.POST, u.String(), nil)
+	buf := bytes.NewBuffer(testUserPublic)
+	req, _ := http.NewRequest(echo.POST, "/v1/sign", buf)
 	req.Header.Set("X-Auth", "Bearer "+ss)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusBadRequest, rec.Code)
-	_, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
-	assert.Error(err, "we shouldn't have received a certificate")
-}
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
 
-func TestSignOverMaxLifetime(t *testing.T) {
-	assert := assert.New(t)
-	buf := bytes.NewBuffer(testUserPublic)
-	exp := time.Now().Add(25 * time.Hour)
-	u, _ := url.Parse("/v1/sign")
-	q := u.Query()
-	q.Set("expires", exp.Format(time.RFC3339))
-	u.RawQuery = q.Encode()
-	req, _ := http.NewRequest(echo.POST, u.String(), buf)
-	req.Header.Set("X-Auth", "Bearer "+signedToken)
-	rec := httptest.NewRecorder()
+	buf = bytes.NewBuffer(testCaPrivatePem)
+	req, _ = http.NewRequest(echo.POST, "/v1/ca", buf)
+	req.Header.Set("X-Auth", "Bearer "+ss)
+	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusBadRequest, rec.Code)
-}
+	assert.Equal(t, http.StatusAccepted, rec.Code)
+	assert.Empty(t, rec.Body.String())
 
-func TestSignPrincipalFilterInclude(t *testing.T) {
-	assert := assert.New(t)
-	buf := bytes.NewBuffer(testUserPublic)
-	u, _ := url.Parse("/v1/sign")
-	q := u.Query()
-	q.Set("include_principals", "fake2")
-	u.RawQuery = q.Encode()
-	req, _ := http.NewRequest(echo.POST, u.String(), buf)
-	req.Header.Set("X-Auth", "Bearer "+signedToken)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusOK, rec.Code)
+	t.Run("TestReady", func(t *testing.T) {
+		req, _ := http.NewRequest(echo.GET, "/v1/ready", nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+	})
 
-	raw, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
-	if assert.NoError(err) {
-		cert, _ := raw.(*ssh.Certificate)
-		assert.NotNil(cert)
-		assert.Contains(cert.ValidPrincipals, "fake2")
-		assert.NotContains(cert.ValidPrincipals, "fake1")
-	}
-}
+	t.Run("TestGetKey", func(t *testing.T) {
+		req, _ := http.NewRequest(echo.GET, "/v1/ca", nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.NotEmpty(t, rec.Body.String())
+	})
 
-func TestSignPrincipalFilterExclude(t *testing.T) {
-	assert := assert.New(t)
-	buf := bytes.NewBuffer(testUserPublic)
-	u, _ := url.Parse("/v1/sign")
-	q := u.Query()
-	q.Set("exclude_principals", "fake2")
-	u.RawQuery = q.Encode()
-	req, _ := http.NewRequest(echo.POST, u.String(), buf)
-	req.Header.Set("X-Auth", "Bearer "+signedToken)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-	assert.Equal(http.StatusOK, rec.Code)
+	t.Run("TestSignCustomExpires", func(t *testing.T) {
+		buf := bytes.NewBuffer(testUserPublic)
+		exp := time.Now().Add(5 * time.Second)
+		u, _ := url.Parse("/v1/sign")
+		q := u.Query()
+		q.Set("expires", exp.Format(time.RFC3339))
+		u.RawQuery = q.Encode()
+		req, _ := http.NewRequest(echo.POST, u.String(), buf)
+		req.Header.Set("X-Auth", "Bearer "+ss)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
 
-	raw, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
-	if assert.NoError(err) {
-		cert, _ := raw.(*ssh.Certificate)
-		assert.NotNil(cert)
-		assert.Contains(cert.ValidPrincipals, "fake1")
-		assert.NotContains(cert.ValidPrincipals, "fake2")
-	}
+		raw, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+		if assert.NoError(t, err) {
+			cert, _ := raw.(*ssh.Certificate)
+			assert.NotNil(t, cert)
+			assert.Equal(t, exp.Unix(), int64(cert.ValidBefore))
+		}
+	})
+
+	t.Run("TestSignPendingAuthContext", func(t *testing.T) {
+		pendingActx := &auth.AuthContext{
+			Parent: &auth.AuthContext{
+				Status: auth.StatusPending,
+			},
+			Status: auth.StatusCompleted,
+		}
+		pendingToken := signapi.makeToken(pendingActx)
+		pendingSignedString, _ := pendingToken.SignedString(signapi.tkey)
+
+		u, _ := url.Parse("/v1/sign")
+		req, _ := http.NewRequest(echo.POST, u.String(), nil)
+		req.Header.Set("X-Auth", "Bearer "+pendingSignedString)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		_, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+		assert.Error(t, err, "we shouldn't have received a certificate")
+	})
+
+	t.Run("TestSignOverMaxLifetime", func(t *testing.T) {
+		buf := bytes.NewBuffer(testUserPublic)
+		exp := time.Now().Add(25 * time.Hour)
+		u, _ := url.Parse("/v1/sign")
+		q := u.Query()
+		q.Set("expires", exp.Format(time.RFC3339))
+		u.RawQuery = q.Encode()
+		req, _ := http.NewRequest(echo.POST, u.String(), buf)
+		req.Header.Set("X-Auth", "Bearer "+ss)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("TestSignPrincipalFilterInclude", func(t *testing.T) {
+		buf := bytes.NewBuffer(testUserPublic)
+		u, _ := url.Parse("/v1/sign")
+		q := u.Query()
+		q.Set("include_principals", "fake2")
+		u.RawQuery = q.Encode()
+		req, _ := http.NewRequest(echo.POST, u.String(), buf)
+		req.Header.Set("X-Auth", "Bearer "+ss)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		raw, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+		if assert.NoError(t, err) {
+			cert, _ := raw.(*ssh.Certificate)
+			assert.NotNil(t, cert)
+			assert.Contains(t, cert.ValidPrincipals, "fake2")
+			assert.NotContains(t, cert.ValidPrincipals, "fake1")
+		}
+	})
+
+	t.Run("TestSignPrincipalFilterExclude", func(t *testing.T) {
+		buf := bytes.NewBuffer(testUserPublic)
+		u, _ := url.Parse("/v1/sign")
+		q := u.Query()
+		q.Set("exclude_principals", "fake2")
+		u.RawQuery = q.Encode()
+		req, _ := http.NewRequest(echo.POST, u.String(), buf)
+		req.Header.Set("X-Auth", "Bearer "+ss)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		raw, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+		if assert.NoError(t, err) {
+			cert, _ := raw.(*ssh.Certificate)
+			assert.NotNil(t, cert)
+			assert.Contains(t, cert.ValidPrincipals, "fake1")
+			assert.NotContains(t, cert.ValidPrincipals, "fake2")
+		}
+	})
 }

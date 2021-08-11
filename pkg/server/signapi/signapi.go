@@ -3,10 +3,11 @@ package signapi
 import (
 	"time"
 
+	"github.com/golang-jwt/jwt"
+
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"
 	"github.com/aakso/ssh-inscribe/pkg/util"
-	"github.com/dgrijalva/jwt-go"
 )
 
 const (
