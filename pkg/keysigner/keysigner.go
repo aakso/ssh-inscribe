@@ -13,11 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
-	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+
+	"github.com/aakso/ssh-inscribe/pkg/util"
 )
 
 // Taken from stdlib to allow us to talk to the agent directly
@@ -208,6 +209,8 @@ func (ks *KeySignerService) removeSmartcard(id string) error {
 		return err
 	}
 	if _, ok := res.(*successAgentMsg); ok {
+		ks.pkcs11Provider = ""
+		ks.pkcs11Pin = ""
 		return nil
 	}
 	return errors.New("agent: failure")
@@ -246,6 +249,25 @@ func (ks *KeySignerService) AddSigningKey(pemKey []byte, comment string) error {
 	if !ks.discoverSigningKey() {
 		return errors.New("cannot add signing key: agent is not accepting the key")
 	}
+	return nil
+}
+
+func (ks *KeySignerService) RemoveAllKeys() error {
+	ks.Lock()
+	defer ks.Unlock()
+	if !ks.agentPing() {
+		return errors.New("cannot remove signing key: agent is not responding")
+	}
+	if ks.pkcs11Provider != "" {
+		if err := ks.removeSmartcard(ks.pkcs11Provider); err != nil {
+			return errors.Wrap(err, "cannot remove smartcard")
+		}
+	}
+	if err := ks.client.RemoveAll(); err != nil {
+		return errors.Wrap(err, "cannot remove signing key")
+	}
+	ks.selectedSigningKey = nil
+
 	return nil
 }
 

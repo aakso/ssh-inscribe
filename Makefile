@@ -20,7 +20,7 @@ PKG_USER = sshi
 PKG_GROUP = sshi
 PKG_VARDIR = /var/lib/ssh-inscribe
 PKG_BIN_SUFFIX =
-GO_VERSION = 1.15.5
+GO_VERSION = 1.16.4
 GOFLAGS=-mod=vendor
 
 LDFLAGS += -X github.com/aakso/ssh-inscribe/pkg/globals.confDir=/$(PKG_ETC)
@@ -144,18 +144,6 @@ rpm_setup_server_fpm_files:
 .PHONY: rpm_setup_client_fpm_files
 rpm_setup_client_fpm_files:
 	cp build/sshi-$(PKG_OS)-$(PKG_ARCH) $(FAKEROOT_CLIENT)/$(PKG_BIN_SSHI)
-
-.PHONY: patch
-patch:
-	patch --dry-run -N -p1 < patch/readline_issue112.patch
-	patch -N -p1 < patch/readline_issue112.patch
-
-.PHONY: ensure-deps
-ensure-deps:
-	dep ensure
-
-.PHONY: get-deps
-get-deps: ensure-deps patch
 
 .PHONY: test
 test:

@@ -13,7 +13,7 @@ import (
 	"os"
 
 	"github.com/aakso/ssh-inscribe/pkg/auth"
-	"github.com/dgrijalva/jwt-go"
+	"github.com/golang-jwt/jwt"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/square/go-jose.v2"
 )
