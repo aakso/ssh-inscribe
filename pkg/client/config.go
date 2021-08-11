@@ -15,6 +15,9 @@ type Config struct {
 	// Path to CA private key file. Only used when adding initial signing key to the server
 	CAKeyFile string
 
+	// Whether to request challenge for an encrypted CA private key
+	CAChallenge bool
+
 	// Generate ad-hoc keypair
 	GenerateKeypair bool
 

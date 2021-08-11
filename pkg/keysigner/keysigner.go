@@ -216,7 +216,7 @@ func (ks *KeySignerService) removeSmartcard(id string) error {
 	return errors.New("agent: failure")
 }
 
-func (ks *KeySignerService) AddSigningKey(pemKey []byte, comment string) error {
+func (ks *KeySignerService) AddSigningKey(encodedKey []byte, passphrase []byte, comment string) error {
 	ks.Lock()
 	defer ks.Unlock()
 	if ks.selectedSigningKey != nil {
@@ -225,7 +225,15 @@ func (ks *KeySignerService) AddSigningKey(pemKey []byte, comment string) error {
 	if !ks.agentPing() {
 		return errors.New("cannot add signing key: agent is not responding")
 	}
-	key, err := ssh.ParseRawPrivateKey(pemKey)
+	var (
+		key interface{}
+		err error
+	)
+	if len(passphrase) > 0 {
+		key, err = ssh.ParseRawPrivateKeyWithPassphrase(encodedKey, passphrase)
+	} else {
+		key, err = ssh.ParseRawPrivateKey(encodedKey)
+	}
 	if err != nil {
 		return errors.Wrap(err, "cannot add signing key")
 	}

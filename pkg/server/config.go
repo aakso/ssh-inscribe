@@ -31,6 +31,7 @@ type Config struct {
 	DefaultAuthBackends       []string      `yaml:"defaultAuthBackends"`
 	MaxCertLifetime           string        `yaml:"maxCertLifetime"`
 	DefaultCertLifetime       string        `yaml:"defaultCertLifetime"`
+	CaChallengeLifetime       string        `yaml:"caChallengeLifetime"`
 	AgentSocket               string        `yaml:"agentSocket"`
 	PKCS11Provider            string        `yaml:"pkcs11Provider"`
 	PKCS11Pin                 string        `yaml:"pkcs11Pin"`
@@ -54,6 +55,7 @@ var Defaults *Config = &Config{
 	DefaultAuthBackends:       []string{},
 	MaxCertLifetime:           "24h",
 	DefaultCertLifetime:       "1h",
+	CaChallengeLifetime:       "5m",
 	AgentSocket:               path.Join(globals.VarDir(), "ssh_inscribe_agent.sock"),
 	PKCS11Provider:            "",
 	PKCS11Pin:                 "",

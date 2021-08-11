@@ -23,6 +23,8 @@ func (sa *SignApi) RegisterRoutes(g *echo.Group) {
 	g.POST("/sign", sa.HandleSign, jwtAuth(sa.tkey, &SignClaim{}, false), auditID())
 	g.GET("/ca", sa.HandleGetKey)
 	g.POST("/ca", sa.HandleAddKey, jwtAuth(sa.tkey, &SignClaim{}, false), auditID())
+	g.POST("/ca/response", sa.HandleCaChallenge, jwtAuth(sa.tkey, &SignClaim{}, false),
+		userPasswordForward(nil), auditID())
 	g.GET("/ready", sa.HandleReady)
 }
 

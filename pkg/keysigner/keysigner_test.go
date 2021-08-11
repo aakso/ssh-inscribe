@@ -8,11 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aakso/ssh-inscribe/pkg/logging"
+	"github.com/ScaleFT/sshkeys"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+
+	"github.com/aakso/ssh-inscribe/pkg/logging"
+	"github.com/aakso/ssh-inscribe/pkg/util"
 )
 
 var (
@@ -195,15 +198,13 @@ func TestMain(m *testing.M) {
 }
 
 func TestService(t *testing.T) {
-	assert := assert.New(t)
 	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
-	assert.True(wait(srv.AgentPing), "agent should respond")
+	assert.True(t, wait(srv.AgentPing), "agent should respond")
 }
 
 func TestExistingAgent(t *testing.T) {
-	assert := assert.New(t)
 	srv1 := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv1.KillAgent()
 	wait(srv1.AgentPing)
@@ -211,82 +212,94 @@ func TestExistingAgent(t *testing.T) {
 	// Start new service with agent already listening
 	srv2 := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv2.Close()
-	assert.True(wait(srv2.AgentPing), "agent should respond")
+	assert.True(t, wait(srv2.AgentPing), "agent should respond")
 }
 
 func TestAddSigningKey(t *testing.T) {
-	assert := assert.New(t)
 	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
-	assert.True(wait(srv.AgentPing))
-	assert.NoError(srv.AddSigningKey(testCaPrivatePem, "test-ca"))
-	assert.Error(srv.AddSigningKey(testCaPrivatePem, "test-ca"))
+	assert.True(t, wait(srv.AgentPing))
+	assert.NoError(t, srv.AddSigningKey(testCaPrivatePem, nil, "test-ca"))
+	assert.Error(t, srv.AddSigningKey(testCaPrivatePem, nil, "test-ca"))
+}
+
+func TestAddEncryptedSigningKey(t *testing.T) {
+	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	defer srv.KillAgent()
+	defer srv.Close()
+
+	passphrase := util.RandBytes(64)
+	encryptedKey, err := sshkeys.Marshal(testCaPrivate, &sshkeys.MarshalOptions{
+		Passphrase: passphrase,
+		Format:     sshkeys.FormatOpenSSHv1,
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.True(t, wait(srv.AgentPing))
+	assert.NoError(t, srv.AddSigningKey(encryptedKey, passphrase, "test-ca"))
+	assert.Error(t, srv.AddSigningKey(encryptedKey, passphrase, "test-ca"))
 }
 
 func TestAddInvalidSigningKey(t *testing.T) {
-	assert := assert.New(t)
 	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
-	assert.True(wait(srv.AgentPing))
-	assert.Error(srv.AddSigningKey(testCaPrivatePemInvalid, "test-ca"))
+	assert.True(t, wait(srv.AgentPing))
+	assert.Error(t, srv.AddSigningKey(testCaPrivatePemInvalid, nil, "test-ca"))
 }
 
 func TestExternallyDiscoverAddedKey(t *testing.T) {
-	assert := assert.New(t)
 	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
-	assert.True(wait(srv.AgentPing))
+	assert.True(t, wait(srv.AgentPing))
 	addKey(srv, testCaPrivate)
-	assert.True(wait(srv.Ready))
+	assert.True(t, wait(srv.Ready))
 }
 
 func TestExternallyDiscoverInvalidAddedKey(t *testing.T) {
-	assert := assert.New(t)
 	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
-	assert.True(wait(srv.AgentPing))
+	assert.True(t, wait(srv.AgentPing))
 	addKey(srv, testCaPrivateInvalid)
-	assert.False(wait(srv.Ready))
+	assert.False(t, wait(srv.Ready))
 }
 
 func TestSign(t *testing.T) {
-	assert := assert.New(t)
 	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
-	assert.True(wait(srv.AgentPing))
-	if assert.NoError(srv.AddSigningKey(testCaPrivatePem, "test-ca")) {
-		if assert.True(srv.Ready(), "service should be ready") {
+	assert.True(t, wait(srv.AgentPing))
+	if assert.NoError(t, srv.AddSigningKey(testCaPrivatePem, nil, "test-ca")) {
+		if assert.True(t, srv.Ready(), "service should be ready") {
 			userCert := testCert()
-			assert.NoError(srv.SignCertificate(userCert), "signing should work")
-			assert.NoError(checkCert(userCert))
+			assert.NoError(t, srv.SignCertificate(userCert), "signing should work")
+			assert.NoError(t, checkCert(userCert))
 			fmt.Println("certificate:", string(ssh.MarshalAuthorizedKey(userCert)))
 		}
 	}
 }
 
 func TestGetPublicKey(t *testing.T) {
-	assert := assert.New(t)
 	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
 	key, err := srv.GetPublicKey()
-	assert.Error(err)
-	assert.True(wait(srv.AgentPing))
+	assert.Error(t, err)
+	assert.True(t, wait(srv.AgentPing))
 	addKey(srv, testCaPrivate)
-	assert.True(wait(srv.Ready))
+	assert.True(t, wait(srv.Ready))
 	key, err = srv.GetPublicKey()
-	assert.NotNil(key)
+	assert.NotNil(t, key)
 }
 
 // This test assumes there is usable key on the smartcard
@@ -294,18 +307,17 @@ func TestAddSmartCard(t *testing.T) {
 	if smartCardId == "" || smartCardPin == "" {
 		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PING set")
 	}
-	assert := assert.New(t)
 	srv := New(socketPath, "")
 	defer srv.KillAgent()
 	defer srv.Close()
 
-	assert.True(wait(srv.AgentPing))
+	assert.True(t, wait(srv.AgentPing))
 	err := srv.AddSmartcard(smartCardId, smartCardPin)
-	if assert.NoError(err) {
-		assert.True(wait(srv.Ready))
+	if assert.NoError(t, err) {
+		assert.True(t, wait(srv.Ready))
 	}
 	err = srv.RemoveSmartcard(smartCardId)
-	assert.NoError(err)
+	assert.NoError(t, err)
 }
 
 // This test assumes there is usable key on the smartcard
@@ -313,59 +325,56 @@ func TestSmartCardSessionRecovery(t *testing.T) {
 	if smartCardId == "" || smartCardPin == "" {
 		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PING set")
 	}
-	assert := assert.New(t)
 	srv := New(socketPath, "")
 	defer srv.KillAgent()
 	defer srv.Close()
-	assert.True(wait(srv.AgentPing))
+	assert.True(t, wait(srv.AgentPing))
 
 	err := srv.AddSmartcard(smartCardId, smartCardPin)
-	if assert.NoError(err) {
-		assert.True(wait(srv.Ready))
+	if assert.NoError(t, err) {
+		assert.True(t, wait(srv.Ready))
 	}
 
 	// Simulate failure
 	srv.pkcs11SessionLost = true
 
 	userCert := testCert()
-	if assert.Error(srv.SignCertificate(userCert), "signing should fail") {
+	if assert.Error(t, srv.SignCertificate(userCert), "signing should fail") {
 		// Wait until recovery has kicked in
-		if assert.True(wait(srv.Ready)) {
-			assert.NoError(srv.SignCertificate(userCert), "signing should now work")
+		if assert.True(t, wait(srv.Ready)) {
+			assert.NoError(t, srv.SignCertificate(userCert), "signing should now work")
 		}
 	}
 }
 
 func TestSigningTest(t *testing.T) {
-	assert := assert.New(t)
 	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
-	assert.True(wait(srv.AgentPing))
+	assert.True(t, wait(srv.AgentPing))
 	addKey(srv, testCaPrivate)
-	assert.True(wait(srv.Ready))
+	assert.True(t, wait(srv.Ready))
 	srv.client.RemoveAll()
-	assert.True(wait(func() bool {
+	assert.True(t, wait(func() bool {
 		return srv.Ready() == false
 	}))
 }
 
 // This test assumes there is usable key on the smartcard
 func BenchmarkSmartCard(b *testing.B) {
-	assert := assert.New(b)
 	if smartCardSrv == nil {
 		b.Skip("No TEST_SMARTCARD_BENCH and TEST_SMARTCARD_ID and TEST_SMARTCARD_PIN set")
 	}
 	pubkey, err := smartCardSrv.GetPublicKey()
-	if assert.NoError(err, "we should have public key on the smartcard") {
+	if assert.NoError(b, err, "we should have public key on the smartcard") {
 		testCaPublicParsed = pubkey
 
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
 				userCert := testCert()
-				assert.NoError(smartCardSrv.SignCertificate(userCert), "signing should work")
+				assert.NoError(b, smartCardSrv.SignCertificate(userCert), "signing should work")
 			}
 		})
 	}
