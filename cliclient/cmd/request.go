@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/aakso/ssh-inscribe/pkg/client"
 	"github.com/spf13/cobra"
@@ -49,7 +50,7 @@ func init() {
 		return nil, cobra.ShellCompDirectiveDefault
 	})
 
-	if os.Getenv("SSH_INSCRIBE_WRITE") != "" {
+	if val, err := strconv.ParseBool(os.Getenv("SSH_INSCRIBE_WRITE")); err == nil && val {
 		ClientConfig.WriteCert = true
 	}
 	ReqCmd.Flags().BoolVarP(
@@ -60,7 +61,7 @@ func init() {
 		"Write certificate (and generated keys) to file specified by <identity> ($SSH_INSCRIBE_WRITE)",
 	)
 
-	if os.Getenv("SSH_INSCRIBE_RENEW") != "" {
+	if val, err := strconv.ParseBool(os.Getenv("SSH_INSCRIBE_RENEW")); err == nil && val {
 		ClientConfig.AlwaysRenew = true
 	}
 	ReqCmd.Flags().BoolVar(
@@ -70,7 +71,7 @@ func init() {
 		"Always renew the certificate even if it is not expired ($SSH_INSCRIBE_RENEW)",
 	)
 
-	if os.Getenv("SSH_INSCRIBE_USE_AGENT") == "0" {
+	if val, err := strconv.ParseBool(os.Getenv("SSH_INSCRIBE_USE_AGENT")); err == nil && !val {
 		ClientConfig.UseAgent = false
 	}
 	ReqCmd.Flags().BoolVar(
@@ -80,7 +81,7 @@ func init() {
 		"Store key and certificate to a ssh-agent specified by $SSH_AUTH_SOCK ($SSH_INSCRIBE_USE_AGENT)",
 	)
 
-	if os.Getenv("SSH_INSCRIBE_GENKEY") != "" {
+	if val, err := strconv.ParseBool(os.Getenv("SSH_INSCRIBE_GENKEY")); err == nil && val {
 		ClientConfig.GenerateKeypair = true
 	}
 	ReqCmd.Flags().BoolVarP(

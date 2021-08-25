@@ -96,7 +96,7 @@ func init() {
 	)
 	_ = RootCmd.RegisterFlagCompletionFunc("retries", noCompletion)
 
-	if os.Getenv("SSH_INSCRIBE_DEBUG") != "" {
+	if val, err := strconv.ParseBool(os.Getenv("SSH_INSCRIBE_DEBUG")); err == nil && val {
 		ClientConfig.Debug = true
 	}
 	RootCmd.PersistentFlags().BoolVar(
@@ -106,7 +106,7 @@ func init() {
 		"Enable request level debugging (outputs sensitive data) ($SSH_INSCRIBE_DEBUG)",
 	)
 
-	if os.Getenv("SSH_INSCRIBE_INSECURE") != "" {
+	if val, err := strconv.ParseBool(os.Getenv("SSH_INSCRIBE_INSECURE")); err == nil && val {
 		ClientConfig.Insecure = true
 	}
 	RootCmd.PersistentFlags().BoolVar(
@@ -129,7 +129,7 @@ func init() {
 		return logging.GetAvailableLevelNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 
-	if os.Getenv("SSH_INSCRIBE_QUIET") != "" {
+	if val, err := strconv.ParseBool(os.Getenv("SSH_INSCRIBE_QUIET")); err == nil && val {
 		ClientConfig.Quiet = true
 	}
 	RootCmd.PersistentFlags().BoolVarP(
@@ -140,7 +140,7 @@ func init() {
 		"Set quiet mode ($SSH_INSCRIBE_QUIET)",
 	)
 
-	if os.Getenv("SSH_INSCRIBE_AGENT_CONFIRM") != "" {
+	if val, err := strconv.ParseBool(os.Getenv("SSH_INSCRIBE_AGENT_CONFIRM")); err == nil && val {
 		ClientConfig.Quiet = true
 	}
 	RootCmd.PersistentFlags().BoolVar(
