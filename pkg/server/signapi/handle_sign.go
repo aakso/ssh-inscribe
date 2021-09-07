@@ -1,17 +1,19 @@
 package signapi
 
 import (
+	"crypto"
 	"io/ioutil"
 	"net/http"
 	"time"
 
 	"github.com/aakso/ssh-inscribe/pkg/auth/authz/authzfilter"
 
-	"github.com/aakso/ssh-inscribe/pkg/auth"
 	jwt "github.com/golang-jwt/jwt"
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/aakso/ssh-inscribe/pkg/auth"
 )
 
 func (sa *SignApi) HandleSign(c echo.Context) error {
@@ -77,7 +79,18 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 		cert.ValidBefore = uint64(ts.Unix())
 	}
 
-	if err := sa.signer.SignCertificate(cert); err != nil {
+	var opts crypto.SignerOpts
+	switch c.QueryParam("signing_option") {
+	case "":
+	case "rsa-sha2-256":
+		opts = crypto.SHA256
+	case "rsa-sha2-512":
+		opts = crypto.SHA512
+	default:
+		return echo.NewHTTPError(http.StatusBadRequest, errors.New("invalid signing_option"))
+	}
+
+	if err := sa.signer.SignCertificate(cert, opts); err != nil {
 		err = errors.Wrap(err, "cannot sign")
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
@@ -90,6 +103,7 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 		WithField("expires", time.Unix(int64(cert.ValidBefore), 0)).
 		WithField("pubkey_fp", ssh.FingerprintSHA256(pubKey)).
 		WithField("pubkey_fp_md5", ssh.FingerprintLegacyMD5(pubKey)).
+		WithField("signature_format", cert.Signature.Format).
 		Info("issued certificate")
 	return c.Blob(http.StatusOK, "text/plain", ssh.MarshalAuthorizedKey(cert))
 }

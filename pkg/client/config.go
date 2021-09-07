@@ -3,61 +3,67 @@ package client
 import "time"
 
 type Config struct {
-	URL   string
+	// URL selects an ssh-inscribe server to talk to
+	URL string
+
+	// Debug enables request debugging
 	Debug bool
 
-	// Always renew even if current certificate is valid
+	// AlwaysRenew requests to renew even if current certificate is valid
 	AlwaysRenew bool
 
-	// Path to private key file to use, if empty, generate a new key
+	// IdentityFile selects private key to use to request certificate for
 	IdentityFile string
 
-	// Path to CA private key file. Only used when adding initial signing key to the server
+	// CAKeyFile selects a CA private key file. Only used when adding initial signing key to the server
 	CAKeyFile string
 
-	// Whether to request challenge for an encrypted CA private key
+	// CAChallenge selects whether to request challenge for an encrypted CA private key
 	CAChallenge bool
 
-	// Generate ad-hoc keypair
+	// GenerateKeypair requests to generate ad-hoc keypair
 	GenerateKeypair bool
 
-	// Generated key type, valid: rsa, ed25519
+	// GenerateKeypairType selects the generated key type, valid: rsa, ed25519
 	GenerateKeypairType string
 
-	// Generated key size, only valid for rsa
+	// GenerateKeypairSize selects the generated key size, only valid for rsa
 	GenerateKeypairSize int
 
-	// Write certificate to <IdentityFile>-cert.pub
+	// WriteCert writes certificate to <IdentityFile>-cert.pub
 	WriteCert bool
 
-	// Store key and certificate to a ssh-agent
+	// UseAgent requests to store key and certificate to a ssh-agent
 	UseAgent bool
 
-	// Store certs and keys with confirm constraint
+	// AgentConfirm requests certs and keys to be stored with confirm constraint
 	AgentConfirm bool
 
-	// Do not print anything
+	// Quiet disables printing to stdout
 	Quiet bool
 
-	// Request specific certificate lifetime
+	// CertLifetime requests a specific certificate lifetime
 	CertLifetime time.Duration
 
-	// Skip TLS validation for server connection
+	// Insecure skips TLS validation for server connection
 	Insecure bool
 
-	// Client timeout
+	// Timeout specifies the client timeout
 	Timeout time.Duration
 
-	// How many retries on failed requests
-	// For example if the server timeouts
+	// Retries specifies how many retries to do on failed requests. For example if the server timeouts
 	Retries int
 
-	// Which auth endpoints to login to
+	// LoginAuthEndpoints selects which auth endpoints to login to
 	LoginAuthEndpoints []string
 
-	// Request only principals matching the pattern to be included
+	// IncludePrincipals requests only principals matching the pattern to be included
 	IncludePrincipals string
 
-	// Request only principals not matching the pattern to be included
+	// ExcludePrincipals requests only principals not matching the pattern to be included
 	ExcludePrincipals string
+
+	// SigningOption sets an optional flag to be used in signing. This is only used if the CA's key is RSA.
+	// If not, this option is silently ignored. Valid values: rsa-sha2-256 and rsa-sha2-512
+	SigningOption string
 }
