@@ -300,6 +300,59 @@ func TestSigning(t *testing.T) {
 			assert.NotEmpty(t, rec.Body.String())
 		})
 
+		t.Run("TestSignSha256", func(t *testing.T) {
+			buf := bytes.NewBuffer(testUserPublic)
+			u, _ := url.Parse("/v1/sign")
+			q := u.Query()
+			q.Set("signing_option", "rsa-sha2-256")
+			u.RawQuery = q.Encode()
+			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req.Header.Set("X-Auth", "Bearer "+ss)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			raw, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+			if assert.NoError(t, err) {
+				cert, _ := raw.(*ssh.Certificate)
+				assert.NotNil(t, cert)
+				assert.Equal(t, "rsa-sha2-256", cert.Signature.Format)
+			}
+		})
+
+		t.Run("TestSignSha512", func(t *testing.T) {
+			buf := bytes.NewBuffer(testUserPublic)
+			u, _ := url.Parse("/v1/sign")
+			q := u.Query()
+			q.Set("signing_option", "rsa-sha2-512")
+			u.RawQuery = q.Encode()
+			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req.Header.Set("X-Auth", "Bearer "+ss)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			raw, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+			if assert.NoError(t, err) {
+				cert, _ := raw.(*ssh.Certificate)
+				assert.NotNil(t, cert)
+				assert.Equal(t, "rsa-sha2-512", cert.Signature.Format)
+			}
+		})
+
+		t.Run("TestSignUnknownOption", func(t *testing.T) {
+			buf := bytes.NewBuffer(testUserPublic)
+			u, _ := url.Parse("/v1/sign")
+			q := u.Query()
+			q.Set("signing_option", "fake")
+			u.RawQuery = q.Encode()
+			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req.Header.Set("X-Auth", "Bearer "+ss)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+
 		t.Run("TestSignCustomExpires", func(t *testing.T) {
 			buf := bytes.NewBuffer(testUserPublic)
 			exp := time.Now().Add(5 * time.Second)

@@ -2,6 +2,7 @@ package keysigner
 
 import (
 	"bytes"
+	"crypto"
 	"crypto/rand"
 	"encoding/binary"
 	"io"
@@ -297,7 +298,7 @@ func (ks *KeySignerService) getSigner() (ssh.Signer, error) {
 	return nil, errors.New("service is not ready for signing")
 }
 
-func (ks *KeySignerService) SignCertificate(cert *ssh.Certificate) error {
+func (ks *KeySignerService) SignCertificate(cert *ssh.Certificate, opts crypto.SignerOpts) error {
 	if !ks.Ready() {
 		return errors.New("service is not ready for signing")
 	}
@@ -308,6 +309,14 @@ func (ks *KeySignerService) SignCertificate(cert *ssh.Certificate) error {
 	if err != nil {
 		ks.log.Error("cannot get signer")
 		return err
+	}
+
+	extendedSigner, isExtendedSigner := signer.(extendedAgentSigner)
+	if signer.PublicKey().Type() == "ssh-rsa" && isExtendedSigner {
+		signer = &extendedSignerWrapper{
+			opts:   opts,
+			signer: extendedSigner,
+		}
 	}
 	if err := cert.SignCert(rand.Reader, signer); err != nil {
 		return err
@@ -515,4 +524,22 @@ func unmarshal(packet []byte) (interface{}, error) {
 		return nil, errors.Errorf("agent: unknown type tag %d", packet[0])
 	}
 	return msg, nil
+}
+
+type extendedAgentSigner interface {
+	ssh.Signer
+	SignWithOpts(rand io.Reader, data []byte, opts crypto.SignerOpts) (*ssh.Signature, error)
+}
+
+type extendedSignerWrapper struct {
+	opts   crypto.SignerOpts
+	signer extendedAgentSigner
+}
+
+func (e *extendedSignerWrapper) PublicKey() ssh.PublicKey {
+	return e.signer.PublicKey()
+}
+
+func (e *extendedSignerWrapper) Sign(rand io.Reader, data []byte) (*ssh.Signature, error) {
+	return e.signer.SignWithOpts(rand, data, e.opts)
 }

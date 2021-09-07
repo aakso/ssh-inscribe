@@ -560,6 +560,9 @@ func (c *Client) sign() error {
 	if c.Config.ExcludePrincipals != "" {
 		req.SetQueryParam("exclude_principals", c.Config.ExcludePrincipals)
 	}
+	if c.Config.SigningOption != "" {
+		req.SetQueryParam("signing_option", c.Config.SigningOption)
+	}
 
 	res, err := req.Post(c.urlFor("sign"))
 	if err != nil {
@@ -1028,6 +1031,8 @@ func (c *Client) printCertificate() {
 	fmt.Printf("\n%20s: %s (%s)", "CA Fingerprint",
 		ssh.FingerprintSHA256(c.ca),
 		ssh.FingerprintLegacyMD5(c.ca))
+	fmt.Printf("\n%20s: %s", "CA Signature Format",
+		c.userCert.Signature.Format)
 	fmt.Printf("\n%20s: %s", "KeyId", c.userCert.KeyId)
 	fmt.Printf("\n%20s: %s", "Valid from", validFrom)
 	fmt.Printf("\n%20s: %s", "Valid to", validTo)

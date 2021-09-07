@@ -7,9 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/aakso/ssh-inscribe/pkg/client"
 	"github.com/aakso/ssh-inscribe/pkg/logging"
-	"github.com/spf13/cobra"
 )
 
 var RootCmd = &cobra.Command{
@@ -246,5 +247,20 @@ func init() {
 			sizes = []string{"2048", "3072", "4096", "8192"}
 		}
 		return sizes, cobra.ShellCompDirectiveNoFileComp
+	})
+
+	if opt := os.Getenv("SSH_INSCRIBE_SIGNING_OPTION"); opt != "" {
+		ClientConfig.SigningOption = opt
+	}
+	RootCmd.PersistentFlags().StringVarP(
+		&ClientConfig.SigningOption,
+		"signing-option",
+		"o",
+		ClientConfig.SigningOption,
+		"Optional flag to be used in signing. This is only used if the CA's key is RSA. ($SSH_INSCRIBE_SIGNING_OPTION)\n"+
+			"If not, this option is silently ignored. Valid values: rsa-sha2-256 and rsa-sha2-512",
+	)
+	_ = RootCmd.RegisterFlagCompletionFunc("signing-option", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		return []string{"rsa-sha2-256", "rsa-sha2-512"}, cobra.ShellCompDirectiveNoFileComp
 	})
 }
