@@ -34,13 +34,6 @@ const agentSuccess = 6
 
 type successAgentMsg struct{}
 
-// Some constants needed to implement smartcard add/remove as it is not supported by stdlib
-const (
-	agentAddSmartcardKey            = 20
-	agentAddSmartcardKeyConstrained = 26
-	agentRemoveSmartcardKey         = 21
-)
-
 // From PROTOCOL.agent 2.2.4
 type addSmartcardKeysToAgentReq struct {
 	Id          string `sshtype:"20|26"`
@@ -311,11 +304,11 @@ func (ks *KeySignerService) SignCertificate(cert *ssh.Certificate, opts crypto.S
 		return err
 	}
 
-	extendedSigner, isExtendedSigner := signer.(extendedAgentSigner)
+	extendedSigner, isExtendedSigner := signer.(util.ExtendedAgentSigner)
 	if signer.PublicKey().Type() == "ssh-rsa" && isExtendedSigner {
-		signer = &extendedSignerWrapper{
-			opts:   opts,
-			signer: extendedSigner,
+		signer = &util.ExtendedAgentSignerWrapper{
+			Opts:   opts,
+			Signer: extendedSigner,
 		}
 	}
 	if err := cert.SignCert(rand.Reader, signer); err != nil {
@@ -524,22 +517,4 @@ func unmarshal(packet []byte) (interface{}, error) {
 		return nil, errors.Errorf("agent: unknown type tag %d", packet[0])
 	}
 	return msg, nil
-}
-
-type extendedAgentSigner interface {
-	ssh.Signer
-	SignWithOpts(rand io.Reader, data []byte, opts crypto.SignerOpts) (*ssh.Signature, error)
-}
-
-type extendedSignerWrapper struct {
-	opts   crypto.SignerOpts
-	signer extendedAgentSigner
-}
-
-func (e *extendedSignerWrapper) PublicKey() ssh.PublicKey {
-	return e.signer.PublicKey()
-}
-
-func (e *extendedSignerWrapper) Sign(rand io.Reader, data []byte) (*ssh.Signature, error) {
-	return e.signer.SignWithOpts(rand, data, e.opts)
 }

@@ -31,7 +31,7 @@ var logLevel = "info"
 func rootInit() {
 	logging.Defaults.DefaultLevel = logLevel
 	if err := logging.Setup(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
@@ -142,13 +142,23 @@ func init() {
 	)
 
 	if val, err := strconv.ParseBool(os.Getenv("SSH_INSCRIBE_AGENT_CONFIRM")); err == nil && val {
-		ClientConfig.Quiet = true
+		ClientConfig.AgentConfirm = true
 	}
 	RootCmd.PersistentFlags().BoolVar(
 		&ClientConfig.AgentConfirm,
 		"agent-confirm",
 		ClientConfig.AgentConfirm,
 		"Request confirm constraint when storing keys and certs to the agent ($SSH_INSCRIBE_AGENT_CONFIRM)",
+	)
+
+	if val, err := strconv.ParseBool(os.Getenv("SSH_INSCRIBE_AGENT_FILTER")); err == nil && !val {
+		agentFilter = false
+	}
+	RootCmd.PersistentFlags().BoolVar(
+		&agentFilter,
+		"agent-filter",
+		agentFilter,
+		"sshi will setup an internal filtering agent for ssh and exec commands ($SSH_INSCRIBE_AGENT_FILTER)",
 	)
 
 	defLoginAuthEndpoints := []string{}

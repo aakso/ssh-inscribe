@@ -47,7 +47,7 @@ const (
 
 	CurrentApiVersion = "v1"
 
-	// Comment to use for keys on agent
+	// AgentComment is a comment to use for keys on agent
 	AgentComment = "ssh-inscribe managed"
 
 	FederatedAuthenticatorPollInterval = 3
@@ -896,10 +896,22 @@ func (c *Client) discoverCertFromAgent() error {
 		if cert == nil {
 			return nil
 		}
-		log := log.WithField("keyid", cert.KeyId)
+		log := log.WithField("keyid", cert.KeyId).
+			WithField("signature_format", cert.Signature.Format).
+			WithField("key_type", strings.TrimPrefix(cert.Key.Type(), "ssh-"))
 		log.Debug("checking cert")
 		if !shallowCertChecker(cert, c.ca) {
 			log.Debug("skipping cert, not valid")
+			return nil
+		}
+		if cert.Signature.Format != util.SignatureFormatFromSigningOptionAndCA(c.Config.SigningOption, c.ca) {
+			log.WithField("chosen_signature_format", util.SignatureFormatFromSigningOptionAndCA(c.Config.SigningOption, c.ca)).
+				Debug("cert valid but has different signature format")
+			return nil
+		}
+		if c.Config.GenerateKeypair && cert.Key.Type() != "ssh-"+c.Config.GenerateKeypairType {
+			log.WithField("chosen_key_type", c.Config.GenerateKeypairType).
+				Debug("cert valid but has different key type")
 			return nil
 		}
 		c.userCert = cert
@@ -915,35 +927,57 @@ func (c *Client) discoverCertFromAgent() error {
 func (c *Client) deleteCertsFromAgent() error {
 	log := Log.WithField("action", "deleteCertsFromAgent")
 	log.Debug("deleting certificates from the agent")
+
+	var removeCert *ssh.Certificate
+	keyReferences := make(map[string]int)
 	err := iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
 		cert, _ := key.(*ssh.Certificate)
 		if cert == nil {
 			return nil
 		}
+		keyReferences[ssh.FingerprintSHA256(cert.Key)]++
 		if !bytes.Equal(cert.SignatureKey.Marshal(), c.ca.Marshal()) {
 			return nil
 		}
-		log.WithField("keyid", cert.KeyId).Debug("removing certificate")
-		if err := c.agentClient.Remove(cert); err != nil {
-			return errors.Wrap(err, "could not remove from agent")
-		}
-		// Also remove key for the certificate if it is managed by us
-		err := iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
-			if bytes.Equal(key.Marshal(), cert.Key.Marshal()) && comment == AgentComment {
-				if err := c.agentClient.Remove(key); err != nil {
-					return err
-				}
-				log.WithField("key", ssh.FingerprintSHA256(key)).Debug("removing associated key")
-			}
+		if cert.Signature.Format != util.SignatureFormatFromSigningOptionAndCA(c.Config.SigningOption, c.ca) {
 			return nil
-		})
-		if err != nil {
-			return err
 		}
+		if c.Config.GenerateKeypair && cert.Key.Type() != "ssh-"+c.Config.GenerateKeypairType {
+			return nil
+		}
+		removeCert = cert
+		keyReferences[ssh.FingerprintSHA256(cert.Key)]--
+
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "could not delete certs")
+		return errors.Wrap(err, "could not query certs")
+	}
+
+	if removeCert != nil {
+		log.WithField("keyid", removeCert.KeyId).
+			WithField("signature_format", removeCert.Signature.Format).Debug("removing certificate")
+		if err := c.agentClient.Remove(removeCert); err != nil {
+			return errors.Wrap(err, "could not remove from agent")
+		}
+
+		// Also remove key for the certificate if it is managed by us and has no referencing certs
+		return iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
+			if !bytes.Equal(key.Marshal(), removeCert.Key.Marshal()) {
+				return nil
+			}
+			if comment != AgentComment {
+				return nil
+			}
+			if keyReferences[ssh.FingerprintSHA256(key)] > 0 {
+				return nil
+			}
+			if err := c.agentClient.Remove(key); err != nil {
+				return err
+			}
+			log.WithField("key", ssh.FingerprintSHA256(key)).Debug("removing associated key")
+			return nil
+		})
 	}
 	return nil
 }

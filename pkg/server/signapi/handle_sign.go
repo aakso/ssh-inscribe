@@ -81,7 +81,7 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 
 	var opts crypto.SignerOpts
 	switch c.QueryParam("signing_option") {
-	case "":
+	case "", "ssh-rsa":
 	case "rsa-sha2-256":
 		opts = crypto.SHA256
 	case "rsa-sha2-512":
