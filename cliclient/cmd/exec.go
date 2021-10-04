@@ -11,12 +11,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aakso/ssh-inscribe/pkg/client"
-	"github.com/aakso/ssh-inscribe/pkg/logging"
-	"github.com/aakso/ssh-inscribe/pkg/util"
 	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh/agent"
+
+	"github.com/aakso/ssh-inscribe/pkg/client"
+	"github.com/aakso/ssh-inscribe/pkg/filteringagent"
+	"github.com/aakso/ssh-inscribe/pkg/logging"
+	"github.com/aakso/ssh-inscribe/pkg/util"
 )
 
 const (
@@ -33,21 +35,24 @@ var ExecCmd = &cobra.Command{
 	},
 	ValidArgsFunction: noCompletion,
 }
-var agentListener net.Listener
-var wg = new(sync.WaitGroup)
-var Log = logging.GetLogger("exec").WithField("pkg", "cmd/exec")
+var (
+	agentFilter = true
+	wg          = new(sync.WaitGroup)
+	Log         = logging.GetLogger("exec").WithField("pkg", "cmd/exec")
+)
 
 func runExecCommand(args []string) error {
+	var (
+		ln  net.Listener
+		err error
+	)
 	authSockName := os.Getenv("SSH_AUTH_SOCK")
-	if authSockName == "" {
-		var (
-			ln  net.Listener
-			err error
-		)
+	var adHocAgentSock string
+	if authSockName == "" || agentFilter {
 		switch runtime.GOOS {
 		case "windows":
-			authSockName = fmt.Sprintf(DefaultWindowsAdhocAgentListener, util.RandB64(16))
-			ln, err = util.LocalListen(authSockName)
+			adHocAgentSock = fmt.Sprintf(DefaultWindowsAdhocAgentListener, util.RandB64(16))
+			ln, err = util.LocalListen(adHocAgentSock)
 			if err != nil {
 				return err
 			}
@@ -56,20 +61,24 @@ func runExecCommand(args []string) error {
 			if err != nil {
 				return err
 			}
-			authSockName = tmpFile.Name()
-			ln, err = util.LocalListen(authSockName)
+			adHocAgentSock = tmpFile.Name()
+			ln, err = util.LocalListen(adHocAgentSock)
 			if err != nil {
 				return err
 			}
 		}
-		if err := startAdhocAgent(ln); err != nil {
-			return err
-		}
-		os.Setenv("SSH_AUTH_SOCK", authSockName)
+		Log.WithField("listener", ln.Addr()).Debug("started adhoc agent listener")
+
 		defer func() {
-			agentListener.Close()
+			_ = ln.Close()
 			wg.Wait()
 		}()
+	}
+	if authSockName == "" {
+		startAdhocAgent(ln, agent.NewKeyring())
+		if err := os.Setenv("SSH_AUTH_SOCK", adHocAgentSock); err != nil {
+			return err
+		}
 	}
 	ClientConfig.GenerateKeypair = true
 	c := &client.Client{Config: ClientConfig}
@@ -77,17 +86,35 @@ func runExecCommand(args []string) error {
 	if err := c.Login(); err != nil {
 		return err
 	}
+	ca, err := c.GetCA()
+	if err != nil {
+		return err
+	}
+	if authSockName != "" && agentFilter {
+		c.Close()
+		conn, err := util.DialAuthSock(authSockName)
+		if err != nil {
+			return errors.Wrap(err, "could not connect to ssh-agent")
+		}
+		targetAgent := agent.NewClient(conn)
+		startAdhocAgent(ln, filteringagent.New(
+			targetAgent,
+			ca,
+			util.SignatureFormatFromSigningOptionAndCA(c.Config.SigningOption, ca),
+			"ssh-"+ClientConfig.GenerateKeypairType))
+		if err := os.Setenv("SSH_AUTH_SOCK", adHocAgentSock); err != nil {
+			return err
+		}
+	}
 	return runCommand(args)
 }
 
-func startAdhocAgent(ln net.Listener) error {
+func startAdhocAgent(ln net.Listener, agentImpl agent.Agent) {
 	log := Log.WithField("worker", "adhocAgent")
-	agentListener = ln
 	go func() {
-		keyRing := agent.NewKeyring()
 		defer wg.Done()
 		for {
-			conn, err := agentListener.Accept()
+			conn, err := ln.Accept()
 			if err != nil {
 				if strings.Contains(err.Error(), "use of closed network connection") {
 					log.Debug("shutting down")
@@ -99,7 +126,7 @@ func startAdhocAgent(ln net.Listener) error {
 				log := log.WithField("action", "connection")
 				log.Debug("new connection")
 				defer wg.Done()
-				if err := agent.ServeAgent(keyRing, conn); err != nil && err != io.EOF {
+				if err := agent.ServeAgent(agentImpl, conn); err != nil && err != io.EOF {
 					log.WithError(err).Error("agent error")
 				}
 				log.Debug("connection closed")
@@ -109,7 +136,7 @@ func startAdhocAgent(ln net.Listener) error {
 	}()
 	wg.Add(1)
 	log.Debug("agent started")
-	return nil
+	return
 }
 
 func runCommand(args []string) error {
