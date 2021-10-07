@@ -75,7 +75,7 @@ type Client struct {
 	userPrivateKey interface{}
 	userCert       *ssh.Certificate
 	signerToken    []byte
-	serverVersion  *semver.Version
+	serverVersion  semver.Version
 }
 
 func (c *Client) getCredential(name, realm, credentialType, def string) []byte {
@@ -134,10 +134,10 @@ func (c *Client) GetServerVersion() (semver.Version, error) {
 	if err := c.discoverServerVersion(); err != nil {
 		return semver.Version{}, errors.Wrap(err, "could not get server version")
 	}
-	if c.serverVersion == nil {
+	if c.serverVersion.EQ(semver.Version{}) {
 		return semver.Version{}, errors.New("no server version available")
 	}
-	return *c.serverVersion, nil
+	return c.serverVersion, nil
 }
 
 func (c *Client) GetAuthenticators() ([]objects.DiscoverResult, error) {
@@ -824,47 +824,42 @@ func (c *Client) discoverServerVersion() error {
 	if err != nil {
 		return errors.Wrap(err, "could not parse server version")
 	}
-	c.serverVersion = &ver
+	c.serverVersion = ver
 	return nil
 }
 
 func (c *Client) checkVersion() error {
-	var sver semver.Version
-	unknownVer := semver.MustParse("0.0.0-unknown")
 	log := Log.WithField("action", "checkVersion")
 	log = log.WithField("client_version", globals.Version())
-	if c.serverVersion == nil {
+	if c.serverVersion.EQ(semver.Version{}) {
 		if err := c.discoverServerVersion(); err != nil {
 			return errors.Wrap(err, "could not validate server version")
 		}
-		if c.serverVersion == nil {
-			sver = semver.MustParse("0.0.0-unknown")
-		} else {
-			sver = *c.serverVersion
-		}
+	} else {
+		return nil
 	}
-	log = log.WithField("server_version", sver)
+	log = log.WithField("server_version", c.serverVersion)
 
-	if unknownVer.EQ(sver) {
+	if c.serverVersion.EQ(semver.Version{}) {
 		log.Info("Server version is unknown. Things should work but notify your administrator about this")
 		return nil
 	}
 
-	if globals.IsSnapshotVersion(sver) || globals.IsSnapshotVersion(globals.Version()) {
+	if globals.IsSnapshotVersion(c.serverVersion) || globals.IsSnapshotVersion(globals.Version()) {
 		log.Debug("you are running a development version. Skipping version checks")
 		return nil
 	}
 
-	if sver.Major != globals.Version().Major {
+	if c.serverVersion.Major != globals.Version().Major {
 		log.Error("major version mismatch. Expect errors to happen")
 		return nil
 	}
 
-	if sver.GT(globals.Version()) {
+	if c.serverVersion.GT(globals.Version()) {
 		log.Info("server is running a newer version. Consider installing an updated client")
 	}
 
-	if globals.Version().GT(sver) {
+	if globals.Version().GT(c.serverVersion) {
 		log.Info("client version is newer. Things should work but notify your administrator about this")
 	}
 	return nil
