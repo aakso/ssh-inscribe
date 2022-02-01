@@ -1143,14 +1143,14 @@ func interactiveCredentialsPrompt(name, realm, credentialType, def string) []byt
 	}
 	ret = askPass(prompt)
 
-	// Fall back to terminal input
-	rl, err := readline.New(prompt)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: cannot do readline: %s\n", err)
-		return []byte(def)
-	}
-
 	if ret == nil {
+		// Fall back to terminal input
+		rl, err := readline.New(prompt)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: cannot do readline: %s\n", err)
+			return []byte(def)
+		}
+
 		switch credentialType {
 		case CredentialTypePassword:
 			if ret, err := rl.ReadPassword(prompt); err == nil {
