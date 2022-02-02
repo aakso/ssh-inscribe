@@ -689,50 +689,61 @@ func (c *Client) authenticate() error {
 	}
 	log.WithField("authenticator_list", finalAuthenticators).Debug("begin authentication")
 
+outer:
 	for _, au := range finalAuthenticators {
 		var (
-			userName, secret string
-			cred             []byte
-			err              error
+			userName string
+			err      error
 		)
-		switch au.AuthenticatorCredentialType {
-		case auth.CredentialUserPassword:
-			if cred, err = c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypeUser, getCurrentUsername()); err != nil {
-				return err
+		for {
+			var (
+				cred   []byte
+				secret string
+			)
+			switch au.AuthenticatorCredentialType {
+			case auth.CredentialUserPassword:
+				if userName == "" {
+					userName = getCurrentUsername()
+				}
+				if cred, err = c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypeUser, userName); err != nil {
+					return err
+				}
+				userName = string(cred)
+				if cred, err = c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePassword, ""); err != nil {
+					return err
+				}
+				secret = string(cred)
+			case auth.CredentialPin:
+				if cred, err = c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePin, ""); err != nil {
+					return err
+				}
+				secret = string(cred)
+			case auth.CredentialFederated:
+				if err = c.authenticateFederated(au.AuthenticatorName, au.AuthenticatorRealm); err != nil {
+					return err
+				}
+				continue outer
+			default:
+				return errors.Errorf("unknown credential type %s", au.AuthenticatorCredentialType)
 			}
-			userName = string(cred)
-			if cred, err = c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePassword, ""); err != nil {
-				return err
+			log.WithField("authenticator", au.AuthenticatorName).Debug("authenticating")
+			// Send Credentials
+			req := c.newReq().SetBasicAuth(userName, secret)
+			if c.signerToken != nil {
+				req.SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken))
 			}
-			secret = string(cred)
-		case auth.CredentialPin:
-			if cred, err = c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePin, ""); err != nil {
-				return err
+			res, err := req.Post(c.urlFor("auth/" + au.AuthenticatorName))
+			if err != nil {
+				return errors.Wrap(err, "could not authenticate")
 			}
-			secret = string(cred)
-		case auth.CredentialFederated:
-			if err = c.authenticateFederated(au.AuthenticatorName, au.AuthenticatorRealm); err != nil {
-				return err
+			if res.StatusCode() == http.StatusOK {
+				c.signerToken = res.Body()
+				log.WithField("authenticator", au.AuthenticatorName).Debug("authentication successful")
+				break
 			}
-			continue
-		default:
-			return errors.Errorf("unknown credential type %s", au.AuthenticatorCredentialType)
+			log.WithField("authenticator", au.AuthenticatorName).Debug("authentication failed")
+			fmt.Println("Authentication failed.")
 		}
-		log.WithField("authenticator", au.AuthenticatorName).Debug("authenticating")
-		// Send Credentials
-		req := c.newReq().SetBasicAuth(userName, secret)
-		if c.signerToken != nil {
-			req.SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken))
-		}
-		res, err := req.Post(c.urlFor("auth/" + au.AuthenticatorName))
-		if err != nil {
-			return errors.Wrap(err, "could not authenticate")
-		}
-		if res.StatusCode() != http.StatusOK {
-			return errors.New("authentication failed")
-		}
-		c.signerToken = res.Body()
-		log.WithField("authenticator", au.AuthenticatorName).Debug("authentication successful")
 	}
 	return nil
 }
