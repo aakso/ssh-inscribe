@@ -69,7 +69,7 @@ type Client struct {
 	restSRV         *resty.SRVRecord
 	agentClient     agent.Agent
 	agentConn       net.Conn
-	credentialInput func(name, realm, credentialType, def string) []byte
+	credentialInput func(name, realm, credentialType, def string) ([]byte, error)
 
 	ca             ssh.PublicKey
 	userPrivateKey interface{}
@@ -78,7 +78,7 @@ type Client struct {
 	serverVersion  semver.Version
 }
 
-func (c *Client) getCredential(name, realm, credentialType, def string) []byte {
+func (c *Client) getCredential(name, realm, credentialType, def string) ([]byte, error) {
 	if c.credentialInput == nil {
 		c.credentialInput = interactiveCredentialsPrompt
 	}
@@ -329,8 +329,14 @@ func (c *Client) caChallenge() error {
 
 func (c *Client) sendChallengeResponse() error {
 	log := Log.WithField("action", "sendChallengeResponse")
-	challenge := c.getCredential("ca-challenge", "signer", "challenge", "")
-	response := c.getCredential("ca-challenge-response", "signer", CredentialTypePassword, "")
+	challenge, err := c.getCredential("ca-challenge", "signer", "challenge", "")
+	if err != nil {
+		return err
+	}
+	response, err := c.getCredential("ca-challenge-response", "signer", CredentialTypePassword, "")
+	if err != nil {
+		return err
+	}
 	log.Debug("sending challenge-response to the server")
 	res, err := c.newReq().
 		SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken)).
@@ -683,37 +689,61 @@ func (c *Client) authenticate() error {
 	}
 	log.WithField("authenticator_list", finalAuthenticators).Debug("begin authentication")
 
+outer:
 	for _, au := range finalAuthenticators {
-		var userName, secret string
-		switch au.AuthenticatorCredentialType {
-		case auth.CredentialUserPassword:
-			userName = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypeUser, getCurrentUsername()))
-			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePassword, ""))
-		case auth.CredentialPin:
-			secret = string(c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePin, ""))
-		case auth.CredentialFederated:
-			if err := c.authenticateFederated(au.AuthenticatorName, au.AuthenticatorRealm); err != nil {
-				return err
+		var (
+			userName string
+			err      error
+		)
+		for {
+			var (
+				cred   []byte
+				secret string
+			)
+			switch au.AuthenticatorCredentialType {
+			case auth.CredentialUserPassword:
+				if userName == "" {
+					userName = getCurrentUsername()
+				}
+				if cred, err = c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypeUser, userName); err != nil {
+					return err
+				}
+				userName = string(cred)
+				if cred, err = c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePassword, ""); err != nil {
+					return err
+				}
+				secret = string(cred)
+			case auth.CredentialPin:
+				if cred, err = c.getCredential(au.AuthenticatorName, au.AuthenticatorRealm, CredentialTypePin, ""); err != nil {
+					return err
+				}
+				secret = string(cred)
+			case auth.CredentialFederated:
+				if err = c.authenticateFederated(au.AuthenticatorName, au.AuthenticatorRealm); err != nil {
+					return err
+				}
+				continue outer
+			default:
+				return errors.Errorf("unknown credential type %s", au.AuthenticatorCredentialType)
 			}
-			continue
-		default:
-			return errors.Errorf("unknown credential type %s", au.AuthenticatorCredentialType)
+			log.WithField("authenticator", au.AuthenticatorName).Debug("authenticating")
+			// Send Credentials
+			req := c.newReq().SetBasicAuth(userName, secret)
+			if c.signerToken != nil {
+				req.SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken))
+			}
+			res, err := req.Post(c.urlFor("auth/" + au.AuthenticatorName))
+			if err != nil {
+				return errors.Wrap(err, "could not authenticate")
+			}
+			if res.StatusCode() == http.StatusOK {
+				c.signerToken = res.Body()
+				log.WithField("authenticator", au.AuthenticatorName).Debug("authentication successful")
+				break
+			}
+			log.WithField("authenticator", au.AuthenticatorName).Debug("authentication failed")
+			fmt.Println("Authentication failed.")
 		}
-		log.WithField("authenticator", au.AuthenticatorName).Debug("authenticating")
-		// Send Credentials
-		req := c.newReq().SetBasicAuth(userName, secret)
-		if c.signerToken != nil {
-			req.SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken))
-		}
-		res, err := req.Post(c.urlFor("auth/" + au.AuthenticatorName))
-		if err != nil {
-			return errors.Wrap(err, "could not authenticate")
-		}
-		if res.StatusCode() != http.StatusOK {
-			return errors.New("authentication failed")
-		}
-		c.signerToken = res.Body()
-		log.WithField("authenticator", au.AuthenticatorName).Debug("authentication successful")
 	}
 	return nil
 }
@@ -735,7 +765,10 @@ outer:
 				return nil, err
 			}
 			log.Debug("encrypted identity file")
-			secret = c.getCredential("private key", desc, CredentialTypePassword, "")
+			var err2 error
+			if secret, err2 = c.getCredential("private key", desc, CredentialTypePassword, ""); err2 != nil {
+				return nil, err2
+			}
 			haveSecret = true
 		default:
 			if err == nil {
@@ -1126,7 +1159,7 @@ func getCurrentUsername() string {
 	return ""
 }
 
-func interactiveCredentialsPrompt(name, realm, credentialType, def string) []byte {
+func interactiveCredentialsPrompt(name, realm, credentialType, def string) ([]byte, error) {
 	var ret []byte
 	prompt := fmt.Sprintf("Enter %s for %q (%s): ",
 		strings.Title(credentialType),
@@ -1143,33 +1176,38 @@ func interactiveCredentialsPrompt(name, realm, credentialType, def string) []byt
 	}
 	ret = askPass(prompt)
 
-	// Fall back to terminal input
-	rl, err := readline.New(prompt)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "WARNING: cannot do readline: %s\n", err)
-		return []byte(def)
-	}
-
 	if ret == nil {
+		// Fall back to terminal input
+		rl, err := readline.New(prompt)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "WARNING: cannot do readline: %s\n", err)
+			return []byte(def), nil
+		}
+
 		switch credentialType {
 		case CredentialTypePassword:
-			if ret, err := rl.ReadPassword(prompt); err == nil {
-				return []byte(ret)
-			} else {
-				fmt.Fprintf(os.Stderr, "WARNING: cannot read password: %s\n", err)
+			if ret, err = rl.ReadPassword(prompt); err == nil {
+				return []byte(ret), nil
 			}
+			if err == readline.ErrInterrupt {
+				return nil, err
+			}
+			fmt.Fprintf(os.Stderr, "WARNING: cannot read password: %s\n", err)
 		default:
-			line, err := rl.Readline()
-			if err != nil {
+			var line string
+			if line, err = rl.Readline(); err != nil {
+				if err == readline.ErrInterrupt {
+					return nil, err
+				}
 				fmt.Fprintf(os.Stderr, "WARNING: cannot read: %s\n", err)
 			}
 			ret = []byte(line)
 		}
 	}
 	if len(ret) == 0 && def != "" {
-		return []byte(def)
+		return []byte(def), nil
 	}
-	return ret
+	return ret, nil
 }
 
 func askPass(prompt string) []byte {
