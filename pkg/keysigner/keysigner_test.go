@@ -321,7 +321,7 @@ func TestGetPublicKey(t *testing.T) {
 // This test assumes there is usable key on the smartcard
 func TestAddSmartCard(t *testing.T) {
 	if smartCardId == "" || smartCardPin == "" {
-		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PING set")
+		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PIN set")
 	}
 	srv := New(socketPath, "")
 	defer srv.KillAgent()
@@ -331,15 +331,17 @@ func TestAddSmartCard(t *testing.T) {
 	err := srv.AddSmartcard(smartCardId, smartCardPin)
 	if assert.NoError(t, err) {
 		assert.True(t, wait(srv.Ready))
+		assert.True(t, len(srv.knownSmartCardKeys) > 0)
 	}
 	err = srv.RemoveSmartcard(smartCardId)
 	assert.NoError(t, err)
+	assert.True(t, len(srv.knownSmartCardKeys) == 0)
 }
 
 // This test assumes there is usable key on the smartcard
 func TestSmartCardSessionRecovery(t *testing.T) {
 	if smartCardId == "" || smartCardPin == "" {
-		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PING set")
+		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PIN set")
 	}
 	srv := New(socketPath, "")
 	defer srv.KillAgent()
@@ -349,6 +351,7 @@ func TestSmartCardSessionRecovery(t *testing.T) {
 	err := srv.AddSmartcard(smartCardId, smartCardPin)
 	if assert.NoError(t, err) {
 		assert.True(t, wait(srv.Ready))
+		assert.True(t, len(srv.knownSmartCardKeys) > 0)
 	}
 
 	// Simulate failure

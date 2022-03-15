@@ -60,6 +60,9 @@ type KeySignerService struct {
 	preferredSigningKeyHash string
 	selectedSigningKey      *agent.Key
 
+	// Keep state of smartcard keys loaded by us, SHA256 fingerprint is used as a key
+	knownSmartCardKeys map[string]*agent.Key
+
 	// PKCS11 stuff
 	pkcs11Provider    string
 	pkcs11Pin         string
@@ -81,6 +84,12 @@ func New(socketPath, preferredKeyHash string) *KeySignerService {
 	r.wg.Add(1)
 	go r.worker()
 	return r
+}
+
+func (ks *KeySignerService) isKnownSmartCardKey(key *agent.Key) bool {
+	hash := ssh.FingerprintSHA256(key)
+	_, ok := ks.knownSmartCardKeys[hash]
+	return ok
 }
 
 func (ks *KeySignerService) discoverSigningKey() bool {
@@ -128,7 +137,7 @@ func (ks *KeySignerService) Ready() bool {
 	for _, key := range keys {
 		if bytes.Compare(key.Blob, ks.selectedSigningKey.Blob) == 0 {
 			// Check if we are using pkcs11 and it has failed
-			if ks.pkcs11Provider != "" && key.Comment == ks.pkcs11Provider && ks.pkcs11SessionLost == true {
+			if ks.pkcs11Provider != "" && ks.isKnownSmartCardKey(key) && ks.pkcs11SessionLost == true {
 				return false
 			}
 			return true
@@ -170,6 +179,20 @@ func (ks *KeySignerService) AddSmartcard(id, pin string) error {
 	return ks.addSmartcard(id, pin)
 }
 func (ks *KeySignerService) addSmartcard(id, pin string) error {
+	// Get current keys from agent
+	current, err := ks.client.List()
+	if err != nil {
+		return err
+	}
+
+	// Add current keys to map, use fingerprint as sane key we can't compare
+	// the blobs directly
+	currentMap := make(map[string]*agent.Key)
+	for _, key := range current {
+		hash := ssh.FingerprintSHA256(key)
+		currentMap[hash] = key
+	}
+
 	req := ssh.Marshal(addSmartcardKeysToAgentReq{
 		Id:  id,
 		Pin: pin,
@@ -181,6 +204,23 @@ func (ks *KeySignerService) addSmartcard(id, pin string) error {
 	if _, ok := res.(*successAgentMsg); ok {
 		ks.pkcs11Provider = id
 		ks.pkcs11Pin = pin
+
+		after, err := ks.client.List()
+		if err != nil {
+			return err
+		}
+
+		for _, key := range after {
+			hash := ssh.FingerprintSHA256(key)
+			_, ok := currentMap[hash]
+			if !ok {
+				if ks.knownSmartCardKeys == nil {
+					ks.knownSmartCardKeys = make(map[string]*agent.Key)
+				}
+				ks.knownSmartCardKeys[hash] = key
+			}
+		}
+
 		return nil
 	}
 	return errors.New("agent: failure")
@@ -195,6 +235,7 @@ func (ks *KeySignerService) RemoveSmartcard(id string) error {
 	return ks.removeSmartcard(id)
 }
 func (ks *KeySignerService) removeSmartcard(id string) error {
+	ks.knownSmartCardKeys = make(map[string]*agent.Key)
 	req := ssh.Marshal(removeSmartcardKeysFromAgentReq{
 		Id: id,
 	})
@@ -444,7 +485,7 @@ func (ks *KeySignerService) workerSignTest() {
 	data := util.RandBytes(32)
 	if _, err := signer.Sign(rand.Reader, data); err != nil {
 		// Assume PKCS#11 session is somehow broken on the agent, signal worker to reinsert
-		if ks.pkcs11Provider != "" && ks.selectedSigningKey.Comment == ks.pkcs11Provider {
+		if ks.pkcs11Provider != "" && ks.isKnownSmartCardKey(ks.selectedSigningKey) {
 			ks.pkcs11SessionLost = true
 		}
 		log.WithError(err).Warn("test signing failed, agent is not able to sign")
@@ -481,8 +522,15 @@ func (ks *KeySignerService) workerRecoverPKCS11Session() {
 		return
 	}
 	log.Warn("attempting to recover from lost PKCS#11 session on the agent")
-	ks.removeSmartcard(ks.pkcs11Provider)
-	if err := ks.addSmartcard(ks.pkcs11Provider, ks.pkcs11Pin); err != nil {
+	// Save pkcs11 settings because successful removal will clear those
+	pkcs11Provider := ks.pkcs11Provider
+	pkcs11Pin := ks.pkcs11Pin
+	if err := ks.removeSmartcard(ks.pkcs11Provider); err != nil {
+		log.WithError(err).Error("cannot remove smartcard")
+	}
+	// Use saved pkcs11 settings to re-add the card since we just cleared it in
+	// the removal process
+	if err := ks.addSmartcard(pkcs11Provider, pkcs11Pin); err != nil {
 		log.WithError(err).Error("cannot add smartcard")
 		return
 	}
