@@ -16,11 +16,11 @@ import (
 	"os/user"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/chzyer/readline"
-
 	"golang.org/x/crypto/ed25519"
 
 	"github.com/labstack/gommon/log"
@@ -47,7 +47,7 @@ const (
 
 	CurrentApiVersion = "v1"
 
-	// AgentComment is a comment to use for keys on agent
+	// AgentComment is a comment to use for keys on agent.
 	AgentComment = "ssh-inscribe managed"
 
 	FederatedAuthenticatorPollInterval = 3
@@ -73,7 +73,7 @@ type Client struct {
 
 	ca             ssh.PublicKey
 	userPrivateKey interface{}
-	userCert       *ssh.Certificate
+	userCerts      []*ssh.Certificate
 	signerToken    []byte
 	serverVersion  semver.Version
 }
@@ -185,7 +185,7 @@ func (c *Client) Login() error {
 		if err := c.discoverCertFromAgent(); err != nil {
 			return errors.Wrap(err, "could not login")
 		}
-		if !c.Config.AlwaysRenew && c.userCert != nil {
+		if !c.Config.AlwaysRenew && len(c.userCerts) > 0 {
 			Log.Debug("certificate found on agent and already valid")
 			return nil
 		}
@@ -194,7 +194,7 @@ func (c *Client) Login() error {
 		if err := c.discoverIdentityFile(); err != nil {
 			return errors.Wrap(err, "could not login")
 		}
-		if !c.Config.AlwaysRenew && c.userCert != nil {
+		if !c.Config.AlwaysRenew && c.userCerts != nil {
 			Log.Debug("certificate found from file and already valid")
 			return nil
 		}
@@ -208,6 +208,7 @@ func (c *Client) Login() error {
 	if c.userPrivateKey == nil {
 		return errors.New("could not continue. No private key")
 	}
+	c.userCerts = nil
 	if err := c.authenticate(); err != nil {
 		return errors.Wrap(err, "could not login")
 	}
@@ -225,15 +226,27 @@ func (c *Client) Login() error {
 		}
 	}
 	if !c.Config.UseAgent && !c.Config.WriteCert {
-		fmt.Printf("%s", ssh.MarshalAuthorizedKey(c.userCert))
+		for _, cert := range c.userCerts {
+			fmt.Printf("%s", ssh.MarshalAuthorizedKey(cert))
+		}
 	}
 	if !c.Config.Quiet {
-		c.printCertificate()
+		for i, cert := range c.userCerts {
+			if i > 0 {
+				fmt.Println()
+			}
+			if len(c.userCerts) > 1 {
+				fmt.Printf("CERT DETAILS (%d/%d):\n", i+1, len(c.userCerts))
+			} else {
+				fmt.Println("CERT DETAILS:")
+			}
+			c.printCertificate(cert)
+		}
 	}
 	return nil
 }
 
-// Add CA key to server from file
+// Add CA key to server from file.
 func (c *Client) addCAKey() error {
 	log := Log.WithField("action", "addCAKey")
 	log.Debug("reading ca key file")
@@ -353,7 +366,7 @@ func (c *Client) sendChallengeResponse() error {
 	return nil
 }
 
-// Generate ad-hoc keypair
+// generate generates an ad-hoc keypair.
 func (c *Client) generate() error {
 	var (
 		key interface{}
@@ -401,8 +414,8 @@ func (c *Client) windowsStoreInAgentWorkaround(addedKey *agent.AddedKey) error {
 	return c.agentClient.Add(*addedKey)
 }
 
-// Store signed key to a ssh-agent, remove all other instances of certificates
-// signed by the CA
+// storeInAgent stores the signed certs to an ssh-agent and removes all other instances of certificates
+// signed by the CA.
 func (c *Client) storeInAgent() error {
 	log := Log.WithField("action", "storeInAgent")
 	log.Debug("cleaning up old certificates")
@@ -411,85 +424,76 @@ func (c *Client) storeInAgent() error {
 		return err
 	}
 
-	// Find out if our private key is already in the agent. In that case let us not
-	// add time constraint to it
-	keyInAgent := false
-	err = iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
-		if bytes.Equal(key.Marshal(), c.userCert.Key.Marshal()) {
-			log.Debug("private key already in agent")
-			keyInAgent = true
+	for i, cert := range c.userCerts {
+		// Find out if our private key is already in the agent. In that case let us not
+		// add time constraint to it
+		keyInAgent := i > 0
+		if i == 0 {
+			err = iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
+				if bytes.Equal(key.Marshal(), cert.Key.Marshal()) {
+					log.Debug("private key already in agent")
+					keyInAgent = true
+				}
+				return nil
+			})
+			if err != nil {
+				return errors.Wrap(err, "could not get agent keys")
+			}
 		}
-		return nil
-	})
-	if err != nil {
-		return errors.Wrap(err, "could not add to agent")
-	}
 
-	var lifetime uint32
-	if c.userCert.ValidBefore != 0 {
-		lifetime = uint32(time.Until(time.Unix(int64(c.userCert.ValidBefore), 0)).Seconds())
-	}
-	addedKey := agent.AddedKey{
-		PrivateKey:       c.userPrivateKey,
-		Certificate:      c.userCert,
-		Comment:          AgentComment,
-		LifetimeSecs:     lifetime,
-		ConfirmBeforeUse: c.Config.AgentConfirm,
-	}
-	microsoftSSHAgent := false
-	if err := c.agentClient.Add(addedKey); err != nil {
-		if runtime.GOOS == "windows" {
-			err = c.windowsStoreInAgentWorkaround(&addedKey)
-			microsoftSSHAgent = true
+		var lifetime uint32
+		if cert.ValidBefore != 0 {
+			lifetime = uint32(time.Until(time.Unix(int64(cert.ValidBefore), 0)).Seconds())
 		}
-		if err != nil {
-			return errors.Wrap(err, "could not add to agent")
-		}
-	}
-	log.WithField("keyid", c.userCert.KeyId).
-		WithField("confirm_before_use", c.Config.AgentConfirm).
-		WithField("lifetime_secs", addedKey.LifetimeSecs).Debug("added certificate")
-
-	// Microsoft ssh-agent seems to overwrite the certificate
-	if !keyInAgent && !microsoftSSHAgent {
-		addedKey = agent.AddedKey{
+		addedKey := agent.AddedKey{
 			PrivateKey:       c.userPrivateKey,
+			Certificate:      cert,
 			Comment:          AgentComment,
 			LifetimeSecs:     lifetime,
 			ConfirmBeforeUse: c.Config.AgentConfirm,
 		}
+		microsoftSSHAgent := false
 		if err := c.agentClient.Add(addedKey); err != nil {
 			if runtime.GOOS == "windows" {
 				err = c.windowsStoreInAgentWorkaround(&addedKey)
+				microsoftSSHAgent = true
 			}
 			if err != nil {
 				return errors.Wrap(err, "could not add to agent")
 			}
 		}
-		log.WithField("lifetime_secs", addedKey.LifetimeSecs).
-			WithField("confirm_before_use", addedKey.ConfirmBeforeUse).Debug("added private key")
-	} else if c.Config.AgentConfirm {
-		log.Warning("agent confirmation requested but the private key is already in the agent, not adding the constraint")
+		log.WithField("keyid", cert.KeyId).
+			WithField("confirm_before_use", c.Config.AgentConfirm).
+			WithField("lifetime_secs", addedKey.LifetimeSecs).Debug("added certificate")
+
+		// Microsoft ssh-agent seems to overwrite the certificate
+		if !keyInAgent && !microsoftSSHAgent {
+			addedKey = agent.AddedKey{
+				PrivateKey:       c.userPrivateKey,
+				Comment:          AgentComment,
+				LifetimeSecs:     lifetime,
+				ConfirmBeforeUse: c.Config.AgentConfirm,
+			}
+			if err := c.agentClient.Add(addedKey); err != nil {
+				if runtime.GOOS == "windows" {
+					err = c.windowsStoreInAgentWorkaround(&addedKey)
+				}
+				if err != nil {
+					return errors.Wrap(err, "could not add to agent")
+				}
+			}
+			log.WithField("lifetime_secs", addedKey.LifetimeSecs).
+				WithField("confirm_before_use", addedKey.ConfirmBeforeUse).Debug("added private key")
+		} else if c.Config.AgentConfirm {
+			log.Warning("agent confirmation requested but the private key is already in the agent, not adding the constraint")
+		}
 	}
 	return nil
 }
+
 func (c *Client) storeInFile() error {
 	log := Log.WithField("action", "storeInFile")
-	certFile := c.Config.IdentityFile + "-cert.pub"
-	if abs, _ := filepath.Abs(certFile); abs != "" {
-		certFile = abs
-	}
-	log.WithField("file", certFile).Debug("saving to file")
-	fh, err := os.Create(certFile)
-	if err != nil {
-		return errors.Wrap(err, "could not save to file")
-	}
-	defer fh.Close()
-	if _, err := fh.Write(ssh.MarshalAuthorizedKey(c.userCert)); err != nil {
-		return errors.Wrap(err, "could not save to file")
-	}
-	fmt.Println(certFile)
-	// If we have been requested to generate a keypair, also save it
+	// If we have been requested to generate a keypair, save it
 	if c.Config.GenerateKeypair {
 		privFile := c.Config.IdentityFile
 		if abs, _ := filepath.Abs(privFile); abs != "" {
@@ -497,7 +501,7 @@ func (c *Client) storeInFile() error {
 		}
 		// Save private
 		log.WithField("file", privFile).Debug("saving to file")
-		fhPriv, err := os.OpenFile(c.Config.IdentityFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+		fhPriv, err := os.OpenFile(c.Config.IdentityFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 		if err != nil {
 			return errors.Wrap(err, "could not save to file")
 		}
@@ -540,11 +544,41 @@ func (c *Client) storeInFile() error {
 		fmt.Println(pubFile)
 		log.WithField("file", pubFile).Debug("saved to file")
 	}
-	log.WithField("file", certFile).Debug("saved to file")
+
+	multipleCerts := len(c.userCerts) > 1
+	var createdFileHandles []*os.File
+	defer func() {
+		for _, fh := range createdFileHandles {
+			_ = fh.Close()
+		}
+	}()
+	for i, cert := range c.userCerts {
+		var certFile string
+		if multipleCerts {
+			certFile = fmt.Sprintf("%s-cert%d.pub", c.Config.IdentityFile, i+1)
+		} else {
+			certFile = c.Config.IdentityFile + "-cert.pub"
+		}
+		if abs, _ := filepath.Abs(certFile); abs != "" {
+			certFile = abs
+		}
+		log.WithField("file", certFile).Debug("saving to file")
+		fh, err := os.Create(certFile)
+		if err != nil {
+			return errors.Wrap(err, "could not save to file")
+		}
+		createdFileHandles = append(createdFileHandles, fh)
+		if _, err := fh.Write(ssh.MarshalAuthorizedKey(cert)); err != nil {
+			return errors.Wrap(err, "could not save to file")
+		}
+		fmt.Println(certFile)
+		log.WithField("file", certFile).Debug("saved to file")
+	}
+
 	return nil
 }
 
-// Request signed certificate from the server
+// sign requests signed certificate from the server.
 func (c *Client) sign() error {
 	log := Log.WithField("action", "sign")
 	log.Debug("requesting certificate")
@@ -569,6 +603,10 @@ func (c *Client) sign() error {
 	if c.Config.SigningOption != "" {
 		req.SetQueryParam("signing_option", c.Config.SigningOption)
 	}
+	if c.Config.MaxPrincipalsPerCertificate > 0 {
+		req.SetQueryParam("max_principals_per_certificate",
+			strconv.FormatInt(int64(c.Config.MaxPrincipalsPerCertificate), 10))
+	}
 
 	res, err := req.Post(c.urlFor("sign"))
 	if err != nil {
@@ -578,16 +616,20 @@ func (c *Client) sign() error {
 		return errors.Errorf("could not sign got code %d and message: %s", res.StatusCode(), res.Body())
 	}
 
-	key, _, _, _, err := ssh.ParseAuthorizedKey(res.Body())
-	if err != nil {
-		return errors.Wrap(err, "could not parse certificate")
+	rawCerts := res.Body()
+	for len(rawCerts) > 0 {
+		var pubKey ssh.PublicKey
+		pubKey, _, _, rawCerts, err = ssh.ParseAuthorizedKey(rawCerts)
+		if err != nil {
+			return errors.Wrap(err, "cannot parse ssh public key")
+		}
+		cert, _ := pubKey.(*ssh.Certificate)
+		if cert == nil {
+			return errors.Errorf("could not parse certificate. Unexpected type %T", pubKey)
+		}
+		c.userCerts = append(c.userCerts, cert)
+		log.WithField("keyid", cert.KeyId).Debug("certificate received")
 	}
-	cert, _ := key.(*ssh.Certificate)
-	if cert == nil {
-		return errors.Errorf("could not parse certificate. Unknown type %T", key)
-	}
-	log.WithField("keyid", cert.KeyId).Debug("certificate received")
-	c.userCert = cert
 	return nil
 }
 
@@ -648,7 +690,7 @@ func (c *Client) discoverAuthenticators() ([]objects.DiscoverResult, error) {
 	return *discoverResult, nil
 }
 
-// Do authentication discovery and login
+// authenticate performs authentication discovery and login.
 func (c *Client) authenticate() error {
 	log := Log.WithField("action", "authenticate")
 	log.Debug("discovering authenticators")
@@ -748,7 +790,7 @@ outer:
 	return nil
 }
 
-// Parse private key and decrypt it if necessary
+// parsePrivateKey parses the private key and decrypts it if necessary.
 func (c *Client) parsePrivateKey(raw []byte, desc string) (interface{}, error) {
 	var (
 		secret []byte
@@ -780,7 +822,7 @@ outer:
 	return key, nil
 }
 
-// Discover users private key and certificate from file
+// discoverIdentityFile discovers users private key and certificate from file.
 func (c *Client) discoverIdentityFile() error {
 	log := Log.WithField("action", "discoverIdentityFile")
 	log.Debug("reading identity file")
@@ -796,30 +838,41 @@ func (c *Client) discoverIdentityFile() error {
 	log.Debug("parsed identity file")
 
 	// Certificate
-	content, err = ioutil.ReadFile(c.Config.IdentityFile + "-cert.pub")
-	if os.IsNotExist(err) {
-		log.Debug("no certificate file found")
-		return nil
-	} else if err != nil {
-		return errors.Wrap(err, "could not open certificate file")
+	certFiles := []string{
+		fmt.Sprintf("%s-cert.pub", c.Config.IdentityFile),
+		fmt.Sprintf("%s-cert1.pub", c.Config.IdentityFile),
 	}
-	log.Debug("found certificate")
+	for _, certFile := range certFiles {
+		log := log.WithField("file", certFile)
+		content, err = ioutil.ReadFile(certFile)
+		if os.IsNotExist(err) {
+			log.Debug("no certificate file found")
+			continue
+		} else if err != nil {
+			return errors.Wrap(err, "could not open certificate file")
+		}
+		log.Debug("found certificate")
 
-	parsed, _, _, _, err := ssh.ParseAuthorizedKey(content)
-	cert, _ := parsed.(*ssh.Certificate)
-	if cert == nil {
-		return errors.New("could not parse certificate")
+		parsed, _, _, _, err := ssh.ParseAuthorizedKey(content)
+		if err != nil {
+			return errors.Wrapf(err, "could not parse certificate file %q", certFile)
+		}
+		cert, _ := parsed.(*ssh.Certificate)
+		if cert == nil {
+			return errors.New("could not parse certificate")
+		}
+		if !shallowCertChecker(cert, c.ca) {
+			log.WithField("keyid", cert.KeyId).Debug("invalid or expired certificate, skipping")
+			continue
+		}
+		log.WithField("keyid", cert.KeyId).Debug("parsed certificate")
+		c.userCerts = append(c.userCerts, cert)
 	}
-	if !shallowCertChecker(cert, c.ca) {
-		log.WithField("keyid", cert.KeyId).Debug("invalid or expired certificate, skipping")
-		return nil
-	}
-	log.WithField("keyid", cert.KeyId).Debug("parsed certificate")
-	c.userCert = cert
+
 	return nil
 }
 
-// Discover signing ca from remote server
+// discoverCA discovers the signing ca from remote server.
 func (c *Client) discoverCA() error {
 	log := Log.WithField("action", "discoverCA")
 	if c.ca != nil {
@@ -898,7 +951,7 @@ func (c *Client) checkVersion() error {
 	return nil
 }
 
-// Connect to ssh-agent if possible
+// connectAgent connects to an SSH agent
 func (c *Client) connectAgent() error {
 	conn, err := util.DialAuthSock("")
 	if err != nil {
@@ -915,7 +968,7 @@ func (c *Client) connectAgent() error {
 	return nil
 }
 
-// Discover certificates from agent
+// discoverCertFromAgent discovers certificates from agent.
 func (c *Client) discoverCertFromAgent() error {
 	log := Log.WithField("action", "discoverCertFromAgent")
 	log.Debug("discovering certificates from the agent")
@@ -942,7 +995,7 @@ func (c *Client) discoverCertFromAgent() error {
 				Debug("cert valid but has different key type")
 			return nil
 		}
-		c.userCert = cert
+		c.userCerts = append(c.userCerts, cert)
 		log.Debug("found cert")
 		return nil
 	})
@@ -956,7 +1009,7 @@ func (c *Client) deleteCertsFromAgent() error {
 	log := Log.WithField("action", "deleteCertsFromAgent")
 	log.Debug("deleting certificates from the agent")
 
-	var removeCert *ssh.Certificate
+	var removeCerts []*ssh.Certificate
 	keyReferences := make(map[string]int)
 	err := iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
 		cert, _ := key.(*ssh.Certificate)
@@ -973,7 +1026,7 @@ func (c *Client) deleteCertsFromAgent() error {
 		if c.Config.GenerateKeypair && cert.Key.Type() != "ssh-"+c.Config.GenerateKeypairType {
 			return nil
 		}
-		removeCert = cert
+		removeCerts = append(removeCerts, cert)
 		keyReferences[ssh.FingerprintSHA256(cert.Key)]--
 
 		return nil
@@ -982,16 +1035,20 @@ func (c *Client) deleteCertsFromAgent() error {
 		return errors.Wrap(err, "could not query certs")
 	}
 
-	if removeCert != nil {
-		log.WithField("keyid", removeCert.KeyId).
-			WithField("signature_format", removeCert.Signature.Format).Debug("removing certificate")
-		if err := c.agentClient.Remove(removeCert); err != nil {
+	if len(removeCerts) == 0 {
+		return nil
+	}
+
+	for _, cert := range removeCerts {
+		log.WithField("keyid", cert.KeyId).
+			WithField("signature_format", cert.Signature.Format).Debug("removing certificate")
+		if err := c.agentClient.Remove(cert); err != nil {
 			return errors.Wrap(err, "could not remove from agent")
 		}
 
 		// Also remove key for the certificate if it is managed by us and has no referencing certs
-		return iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
-			if !bytes.Equal(key.Marshal(), removeCert.Key.Marshal()) {
+		err = iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
+			if !bytes.Equal(key.Marshal(), cert.Key.Marshal()) {
 				return nil
 			}
 			if comment != AgentComment {
@@ -1006,6 +1063,9 @@ func (c *Client) deleteCertsFromAgent() error {
 			log.WithField("key", ssh.FingerprintSHA256(key)).Debug("removing associated key")
 			return nil
 		})
+		if err != nil {
+			return errors.Wrap(err, "could not remove associated key")
+		}
 	}
 	return nil
 }
@@ -1083,34 +1143,33 @@ func (c *Client) initREST() error {
 	return nil
 }
 
-func (c *Client) printCertificate() {
-	validFrom := time.Unix(int64(c.userCert.ValidAfter), 0)
-	validTo := time.Unix(int64(c.userCert.ValidBefore), 0)
-	fmt.Print("CERT DETAILS:")
-	fmt.Printf("\n%20s: %s (%s)", "Fingerprint",
-		ssh.FingerprintSHA256(c.userCert.Key),
-		ssh.FingerprintLegacyMD5(c.userCert.Key))
+func (c *Client) printCertificate(cert *ssh.Certificate) {
+	validFrom := time.Unix(int64(cert.ValidAfter), 0)
+	validTo := time.Unix(int64(cert.ValidBefore), 0)
+	fmt.Printf("%20s: %s (%s)", "Fingerprint",
+		ssh.FingerprintSHA256(cert.Key),
+		ssh.FingerprintLegacyMD5(cert.Key))
 	fmt.Printf("\n%20s: %s (%s)", "CA Fingerprint",
 		ssh.FingerprintSHA256(c.ca),
 		ssh.FingerprintLegacyMD5(c.ca))
 	fmt.Printf("\n%20s: %s", "CA Signature Format",
-		c.userCert.Signature.Format)
-	fmt.Printf("\n%20s: %s", "KeyId", c.userCert.KeyId)
+		cert.Signature.Format)
+	fmt.Printf("\n%20s: %s", "KeyId", cert.KeyId)
 	fmt.Printf("\n%20s: %s", "Valid from", validFrom)
 	fmt.Printf("\n%20s: %s", "Valid to", validTo)
 	if validTo.After(time.Now()) {
 		fmt.Printf(" (expires in %s)", validTo.Sub(time.Now()))
 	}
 	fmt.Printf("\n%20s:", "Principals")
-	for _, p := range c.userCert.ValidPrincipals {
+	for _, p := range cert.ValidPrincipals {
 		fmt.Printf("\n%20s  %s", " ", p)
 	}
 	fmt.Printf("\n%20s:", "Critical Options")
-	for k, v := range c.userCert.CriticalOptions {
+	for k, v := range cert.CriticalOptions {
 		fmt.Printf("\n%20s  %s %s", " ", k, v)
 	}
 	fmt.Printf("\n%20s:", "Extensions")
-	for k, v := range c.userCert.Extensions {
+	for k, v := range cert.Extensions {
 		fmt.Printf("\n%20s  %s %s", " ", k, v)
 	}
 	fmt.Println()
@@ -1124,7 +1183,7 @@ func (c *Client) newReq() *resty.Request {
 	return r
 }
 
-// Return versioned url, not ideal but lets do this statically for now
+// urlFor returns a versioned url
 func (c *Client) urlFor(s string) string {
 	if !strings.HasSuffix(c.rest.HostURL, fmt.Sprintf("/%s", CurrentApiVersion)) {
 		return fmt.Sprintf("%s/%s", CurrentApiVersion, s)

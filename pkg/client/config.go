@@ -66,4 +66,8 @@ type Config struct {
 	// SigningOption sets an optional flag to be used in signing. This is only used if the CA's key is RSA.
 	// If not, this option is silently ignored. Valid values: rsa-sha2-256 and rsa-sha2-512
 	SigningOption string
+
+	// MaxPrincipalsPerCertificate is an optional argument that instructs the server to put maximum of N principals
+	// per signed certificate.
+	MaxPrincipalsPerCertificate int
 }

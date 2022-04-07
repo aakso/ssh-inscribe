@@ -4,6 +4,7 @@ import (
 	"crypto"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/aakso/ssh-inscribe/pkg/auth/authz/authzfilter"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 )
+
+const minimumPrincipalsBatchSize = 10
 
 func (sa *SignApi) HandleSign(c echo.Context) error {
 	var actx *auth.AuthContext
@@ -64,21 +67,37 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	cert := auth.MakeCertificate(pubKey, actx)
-	cert.ValidBefore = uint64(time.Now().Add(sa.defaultCertLife).Unix())
+	validBefore := time.Now().Add(sa.defaultCertLife)
+
 	// Validity
 	if exp := c.QueryParam("expires"); exp != "" {
-		ts, err := time.Parse(time.RFC3339, exp)
+		validBefore, err = time.Parse(time.RFC3339, exp)
 		if err != nil {
 			err = errors.Wrap(err, "invalid expires")
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
-		if time.Until(ts) > sa.maxCertLife {
+		if time.Until(validBefore) > sa.maxCertLife {
 			return echo.NewHTTPError(http.StatusBadRequest, errors.Errorf("maxmimum lifetime is %s", sa.maxCertLife).Error())
 		}
-		cert.ValidBefore = uint64(ts.Unix())
 	}
 
+	// Max principals per certificate
+	var maxPrincipalsPerCertificate int64
+	if sval := c.QueryParam("max_principals_per_certificate"); sval != "" {
+		maxPrincipalsPerCertificate, err = strconv.ParseInt(sval, 10, 64)
+		if err != nil {
+			err = errors.Wrap(err, "invalid max_principals_per_certificate")
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
+		if maxPrincipalsPerCertificate < minimumPrincipalsBatchSize {
+			return echo.NewHTTPError(http.StatusBadRequest,
+				errors.Errorf("minimum value for max_principals_per_certificate is %d", minimumPrincipalsBatchSize))
+		}
+	}
+
+	certs := auth.MakeCertificates(pubKey, actx, validBefore, int(maxPrincipalsPerCertificate))
+
+	// Signing option
 	var opts crypto.SignerOpts
 	switch c.QueryParam("signing_option") {
 	case "", "ssh-rsa":
@@ -90,20 +109,24 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, errors.New("invalid signing_option"))
 	}
 
-	if err := sa.signer.SignCertificate(cert, opts); err != nil {
-		err = errors.Wrap(err, "cannot sign")
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+	var marshaledCerts []byte
+	for _, cert := range certs {
+		if err := sa.signer.SignCertificate(cert, opts); err != nil {
+			err = errors.Wrap(err, "cannot sign")
+			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		}
+		log.
+			WithField("key_id", cert.KeyId).
+			WithField("principals", cert.ValidPrincipals).
+			WithField("critical_options", cert.CriticalOptions).
+			WithField("extensions", cert.Extensions).
+			WithField("not_before", time.Unix(int64(cert.ValidAfter), 0)).
+			WithField("expires", time.Unix(int64(cert.ValidBefore), 0)).
+			WithField("pubkey_fp", ssh.FingerprintSHA256(pubKey)).
+			WithField("pubkey_fp_md5", ssh.FingerprintLegacyMD5(pubKey)).
+			WithField("signature_format", cert.Signature.Format).
+			Info("issued certificate")
+		marshaledCerts = append(marshaledCerts, ssh.MarshalAuthorizedKey(cert)...)
 	}
-	log.
-		WithField("key_id", cert.KeyId).
-		WithField("principals", cert.ValidPrincipals).
-		WithField("critical_options", cert.CriticalOptions).
-		WithField("extensions", cert.Extensions).
-		WithField("not_before", time.Unix(int64(cert.ValidAfter), 0)).
-		WithField("expires", time.Unix(int64(cert.ValidBefore), 0)).
-		WithField("pubkey_fp", ssh.FingerprintSHA256(pubKey)).
-		WithField("pubkey_fp_md5", ssh.FingerprintLegacyMD5(pubKey)).
-		WithField("signature_format", cert.Signature.Format).
-		Info("issued certificate")
-	return c.Blob(http.StatusOK, "text/plain", ssh.MarshalAuthorizedKey(cert))
+	return c.Blob(http.StatusOK, "text/plain", marshaledCerts)
 }

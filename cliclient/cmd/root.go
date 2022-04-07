@@ -273,4 +273,15 @@ func init() {
 	_ = RootCmd.RegisterFlagCompletionFunc("signing-option", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return []string{"rsa-sha2-256", "rsa-sha2-512"}, cobra.ShellCompDirectiveNoFileComp
 	})
+
+	if opt := os.Getenv("SSH_INSCRIBE_MAX_PRINCIPALS_PER_CERTIFICATE"); opt != "" {
+		iv, _ := strconv.ParseInt(opt, 10, 64)
+		ClientConfig.MaxPrincipalsPerCertificate = int(iv)
+	}
+	RootCmd.PersistentFlags().IntVar(
+		&ClientConfig.MaxPrincipalsPerCertificate,
+		"max-principals-per-certificate",
+		ClientConfig.MaxPrincipalsPerCertificate,
+		"Optional flag that instructs the server to put maximum of N principals per signed certificate.",
+	)
 }
