@@ -56,7 +56,7 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 -----END RSA PRIVATE KEY-----`)
 	testUserPublic                   = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC32gyZOLC0RHDntCk+0T5pDNYYytfmP/Jzx+tpqNGEuCWnOV9PwBLdRPT2SNIzCq1GBQWYg63GZ4qWbuvSBvo904Y69q0RWugbcNjpclzkJGT0Bl50l/ppeuJ8wLVFnguCH92E2ja/8tiIPtetKGmFDdSTETIRshGUE6PnuPy2/1BL1ES55XfOGLcvzf/yDi+JeuwQqWi8YMxAIm8ug0yn4GPBPK/MNpnMG3AQmwmviQT6nC6Ky/B9VJk2418v++lAgKRXwyqUeaHd2jAj+5lQ72zc3mZjwFnwTZJWySaGtqxQea9l1wYOhZOEyV4+KOgfLoZ3ps+vmMLGSxmnGmAj user`)
 	fakeAuthContext auth.AuthContext = auth.AuthContext{
-		Principals:      []string{"fake1", "fake2", "fake3"},
+		Principals:      genFakePrincipals(),
 		CriticalOptions: map[string]string{"test": "fake"},
 		AuthMeta:        map[string]interface{}{auth.MetaAuditID: "fake"},
 	}
@@ -72,6 +72,17 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 	signingKey          []byte = []byte("testkey")
 	caChallengeLifetime        = 3 * time.Second
 )
+
+// genNumPrincipals sets the number of principals to test. OpenSSH has SSHKEY_CERT_MAX_PRINCIPALS set to 256.
+const genNumPrincipals = 257
+
+func genFakePrincipals() []string {
+	var principals []string
+	for i := 0; i < genNumPrincipals; i++ {
+		principals = append(principals, fmt.Sprintf("fake%d", i))
+	}
+	return principals
+}
 
 func TestMain(m *testing.M) {
 	logging.SetLevel(logrus.DebugLevel)
@@ -447,6 +458,69 @@ func TestSigning(t *testing.T) {
 				assert.NotNil(t, cert)
 				assert.Contains(t, cert.ValidPrincipals, "fake1")
 				assert.NotContains(t, cert.ValidPrincipals, "fake2")
+			}
+		})
+
+		t.Run("TestSignWithMaxPrincipalsPerCertificate", func(t *testing.T) {
+			buf := bytes.NewBuffer(testUserPublic)
+			u, _ := url.Parse("/v1/sign")
+			q := u.Query()
+			q.Set("max_principals_per_certificate", "42")
+			u.RawQuery = q.Encode()
+			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req.Header.Set("X-Auth", "Bearer "+ss)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			rawCerts := rec.Body.Bytes()
+			remainingPrincipals := genNumPrincipals
+			for len(rawCerts) > 0 {
+				var (
+					pubKey ssh.PublicKey
+					err    error
+				)
+				pubKey, _, _, rawCerts, err = ssh.ParseAuthorizedKey(rawCerts)
+				if assert.NoError(t, err) {
+					cert, _ := pubKey.(*ssh.Certificate)
+					assert.NotNil(t, cert)
+					remainingPrincipals -= len(cert.ValidPrincipals)
+				}
+			}
+			assert.Zero(t, remainingPrincipals)
+		})
+
+		t.Run("TestSignWithInvalidMaxPrincipalsPerCertificate", func(t *testing.T) {
+			cases := []struct {
+				name string
+				val  string
+			}{
+				{
+					name: "notAnInteger",
+					val:  "invalid",
+				},
+				{
+					name: "tooLow",
+					val:  "1",
+				},
+				{
+					name: "negative",
+					val:  "-1",
+				},
+			}
+			for _, tt := range cases {
+				t.Run(tt.name, func(t *testing.T) {
+					buf := bytes.NewBuffer(testUserPublic)
+					u, _ := url.Parse("/v1/sign")
+					q := u.Query()
+					q.Set("max_principals_per_certificate", tt.val)
+					u.RawQuery = q.Encode()
+					req, _ := http.NewRequest(echo.POST, u.String(), buf)
+					req.Header.Set("X-Auth", "Bearer "+ss)
+					rec := httptest.NewRecorder()
+					e.ServeHTTP(rec, req)
+					assert.Equal(t, http.StatusBadRequest, rec.Code)
+				})
 			}
 		})
 	})
