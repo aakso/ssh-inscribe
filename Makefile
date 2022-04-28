@@ -22,6 +22,7 @@ PKG_VARDIR = /var/lib/ssh-inscribe
 PKG_BIN_SUFFIX =
 GO_VERSION = 1.18.1
 GOFLAGS=-mod=vendor
+GOARCH=amd64
 
 LDFLAGS += -X github.com/aakso/ssh-inscribe/pkg/globals.confDir=/$(PKG_ETC)
 
@@ -55,14 +56,14 @@ $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH): LDFLAGS += -X github.com/aakso/s
 $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH): LDFLAGS += -X github.com/aakso/ssh-inscribe/pkg/globals.confDir=/$(PKG_ETC)
 $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH): LDFLAGS += -X github.com/aakso/ssh-inscribe/pkg/globals.version=$(PKG_VERSION)
 $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH):
-	GOOS=$(PKG_OS) GOFLAGS="$(GOFLAGS)" go build -ldflags '$(LDFLAGS)' \
+	GOOS=$(PKG_OS) GOFLAGS="$(GOFLAGS)" GOARCH="$(GOARCH)" go build -ldflags '$(LDFLAGS)' \
 		-o $(BUILDDIR)/ssh-inscribe-$(PKG_OS)-$(PKG_ARCH)$(PKG_BIN_SUFFIX) .
 
 build-client: $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH)
 
 $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH): LDFLAGS += -X github.com/aakso/ssh-inscribe/pkg/globals.version=$(PKG_VERSION)
 $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH):
-	GOOS=$(PKG_OS) GOFLAGS="$(GOFLAGS)" go build -ldflags '$(LDFLAGS)' \
+	GOOS=$(PKG_OS) GOFLAGS="$(GOFLAGS)" GOARCH="$(GOARCH)" go build -ldflags '$(LDFLAGS)' \
 		-o $(BUILDDIR)/sshi-$(PKG_OS)-$(PKG_ARCH)$(PKG_BIN_SUFFIX) ./cliclient/sshi
 
 .PHONY: dist
@@ -86,6 +87,8 @@ linux:
 darwin:
 	$(MAKE) PKG_OS=darwin build-server
 	$(MAKE) PKG_OS=darwin build-client
+	$(MAKE) PKG_OS=darwin PKG_ARCH=arm64 GOARCH=arm64 build-server
+	$(MAKE) PKG_OS=darwin PKG_ARCH=arm64 GOARCH=arm64 build-client
 .PHONY: windows
 windows:
 	$(MAKE) PKG_OS=windows PKG_BIN_SUFFIX=.exe build-client
