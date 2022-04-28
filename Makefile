@@ -20,7 +20,7 @@ PKG_USER = sshi
 PKG_GROUP = sshi
 PKG_VARDIR = /var/lib/ssh-inscribe
 PKG_BIN_SUFFIX =
-GO_VERSION = 1.17.0
+GO_VERSION = 1.18.1
 GOFLAGS=-mod=vendor
 
 LDFLAGS += -X github.com/aakso/ssh-inscribe/pkg/globals.confDir=/$(PKG_ETC)
