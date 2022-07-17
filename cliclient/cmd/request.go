@@ -31,7 +31,7 @@ var ReqCmd = &cobra.Command{
 		}
 		return c.Login()
 	},
-	ValidArgsFunction: noCompletion,
+	ValidArgsFunction: cobra.NoFileCompletions,
 }
 
 func init() {

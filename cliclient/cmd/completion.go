@@ -35,7 +35,3 @@ var CompletionCmd = &cobra.Command{
 func init() {
 	RootCmd.AddCommand(CompletionCmd)
 }
-
-func noCompletion(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	return nil, cobra.ShellCompDirectiveNoFileComp
-}

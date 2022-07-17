@@ -29,7 +29,7 @@ var versionCmd = &cobra.Command{
 		}
 		return nil
 	},
-	ValidArgsFunction: noCompletion,
+	ValidArgsFunction: cobra.NoFileCompletions,
 }
 
 func init() {
