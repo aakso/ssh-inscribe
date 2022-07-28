@@ -33,7 +33,7 @@ var ExecCmd = &cobra.Command{
 		ignoreFlagsAfter("exec")
 		return runExecCommand(RootCmd.Flags().Args()[2:])
 	},
-	ValidArgsFunction: noCompletion,
+	ValidArgsFunction: cobra.NoFileCompletions,
 }
 var (
 	agentFilter = true

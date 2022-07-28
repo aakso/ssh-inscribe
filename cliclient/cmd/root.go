@@ -71,7 +71,7 @@ func init() {
 		os.Getenv("SSH_INSCRIBE_URL"),
 		"URL to ssh-inscribed ($SSH_INSCRIBE_URL)",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("url", noCompletion)
+	_ = RootCmd.RegisterFlagCompletionFunc("url", cobra.NoFileCompletions)
 
 	defTimeout := ClientConfig.Timeout
 	if expire := os.Getenv("SSH_INSCRIBE_TIMEOUT"); expire != "" {
@@ -83,7 +83,7 @@ func init() {
 		defTimeout,
 		"Client timeout ($SSH_INSCRIBE_TIMEOUT)",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("timeout", noCompletion)
+	_ = RootCmd.RegisterFlagCompletionFunc("timeout", cobra.NoFileCompletions)
 
 	retries := ClientConfig.Retries
 	if os.Getenv("SSH_INSCRIBE_RETRIES") != "" {
@@ -95,7 +95,7 @@ func init() {
 		retries,
 		"Set retry on server failure ($SSH_INSCRIBE_RETRIES)",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("retries", noCompletion)
+	_ = RootCmd.RegisterFlagCompletionFunc("retries", cobra.NoFileCompletions)
 
 	if val, err := strconv.ParseBool(os.Getenv("SSH_INSCRIBE_DEBUG")); err == nil && val {
 		ClientConfig.Debug = true
@@ -198,7 +198,7 @@ func init() {
 		defIncludePrincipals,
 		"Request only principals matching the glob pattern to be included ($SSH_INSCRIBE_INCLUDE_PRINCIPALS)",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("include", noCompletion)
+	_ = RootCmd.RegisterFlagCompletionFunc("include", cobra.NoFileCompletions)
 
 	var defExcludePrincipals string
 	if s := os.Getenv("SSH_INSCRIBE_EXCLUDE_PRINCIPALS"); s != "" {
@@ -210,7 +210,7 @@ func init() {
 		defExcludePrincipals,
 		"Request only principals not matching the glob pattern to be included ($SSH_INSCRIBE_EXCLUDE_PRINCIPALS)",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("exclude", noCompletion)
+	_ = RootCmd.RegisterFlagCompletionFunc("exclude", cobra.NoFileCompletions)
 
 	var defExpire time.Duration
 	if expire := os.Getenv("SSH_INSCRIBE_EXPIRE"); expire != "" {
@@ -223,7 +223,7 @@ func init() {
 		defExpire,
 		"Request specific lifetime. Example '10m' ($SSH_INSCRIBE_EXPIRE)",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("expire", noCompletion)
+	_ = RootCmd.RegisterFlagCompletionFunc("expire", cobra.NoFileCompletions)
 
 	if kt := os.Getenv("SSH_INSCRIBE_GENKEY_TYPE"); kt != "" {
 		ClientConfig.GenerateKeypairType = kt

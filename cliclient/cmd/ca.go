@@ -39,7 +39,7 @@ var ShowCaCmd = &cobra.Command{
 		}
 		return nil
 	},
-	ValidArgsFunction: noCompletion,
+	ValidArgsFunction: cobra.NoFileCompletions,
 }
 
 var AddCaCmd = &cobra.Command{
@@ -81,7 +81,7 @@ func init() {
 		nil,
 		"Format ca public key with allowed principals for use with authorized_keys",
 	)
-	_ = ShowCaCmd.RegisterFlagCompletionFunc("principals", noCompletion)
+	_ = ShowCaCmd.RegisterFlagCompletionFunc("principals", cobra.NoFileCompletions)
 
 	AddCaCmd.Flags().BoolVarP(&ClientConfig.CAChallenge, "challenge", "c", false,
 		"Use challenge mode to decrypt an encrypted private key")
