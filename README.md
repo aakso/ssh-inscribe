@@ -41,9 +41,8 @@ For client you need:
 - `ssh-agent` running for convenient use
 
 ## Development version installation
-Tested with Go1.8. To install both server and client:
 ```
-go get github.com/aakso/ssh-inscribe/...
+go install github.com/aakso/ssh-inscribe/...@latest
 ```
 
 ## Quick start (flat file authentication)
