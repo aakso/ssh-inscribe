@@ -1,6 +1,8 @@
 package signapi
 
 import (
+	"strings"
+
 	"github.com/golang-jwt/jwt"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -54,6 +56,7 @@ func jwtAuth(key []byte, claims jwt.Claims, skipIfMissing bool) echo.MiddlewareF
 				return key, nil
 			}
 
+			auth = strings.TrimPrefix(auth, "Bearer ")
 			// claims are of type `jwt.MapClaims` when token is created with `jwt.Parse`
 			token, err := jwt.ParseWithClaims(auth, &SignClaim{}, keyFunc)
 			if err != nil {
