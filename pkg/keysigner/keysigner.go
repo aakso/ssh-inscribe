@@ -2,9 +2,9 @@ package keysigner
 
 import (
 	"bytes"
-	"crypto"
 	"crypto/rand"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -332,7 +332,7 @@ func (ks *KeySignerService) getSigner() (ssh.Signer, error) {
 	return nil, errors.New("service is not ready for signing")
 }
 
-func (ks *KeySignerService) SignCertificate(cert *ssh.Certificate, opts crypto.SignerOpts) error {
+func (ks *KeySignerService) SignCertificate(cert *ssh.Certificate, algorithm string) error {
 	if !ks.Ready() {
 		return errors.New("service is not ready for signing")
 	}
@@ -345,18 +345,7 @@ func (ks *KeySignerService) SignCertificate(cert *ssh.Certificate, opts crypto.S
 		return err
 	}
 
-	extendedSigner, isExtendedSigner := signer.(util.ExtendedAgentSigner)
-	if signer.PublicKey().Type() == "ssh-rsa" && isExtendedSigner {
-		signer = &util.ExtendedAgentSignerWrapper{
-			Opts:   opts,
-			Signer: extendedSigner,
-		}
-	}
-	if err := cert.SignCert(rand.Reader, signer); err != nil {
-		return err
-	} else {
-		return nil
-	}
+	return SignCertWithAlgorithm(cert, signer, algorithm)
 }
 
 // Kill agent if it was started by us
@@ -565,4 +554,46 @@ func unmarshal(packet []byte) (interface{}, error) {
 		return nil, errors.Errorf("agent: unknown type tag %d", packet[0])
 	}
 	return msg, nil
+}
+
+// certBytesForSigning is a copy of (*ssh.Certificate).certBytesForSigning for us to be able to support the legacy
+// signing algo ssh-rsa
+func certBytesForSigning(cert *ssh.Certificate) []byte {
+	c2 := *cert
+	c2.Signature = nil
+	out := c2.Marshal()
+	// Drop trailing signature length.
+	return out[:len(out)-4]
+}
+
+// SignCertWithAlgorithm allows signing a certificate with any algorithm. It doesn't default to sha512 with rsa keys
+// as the stdlib does
+func SignCertWithAlgorithm(cert *ssh.Certificate, signer ssh.Signer, algorithm string) error {
+	algorithmSignerRequired := algorithm != "" && algorithm != ssh.KeyAlgoRSA
+
+	cert.Nonce = make([]byte, 32)
+	if _, err := io.ReadFull(rand.Reader, cert.Nonce); err != nil {
+		return err
+	}
+	cert.SignatureKey = signer.PublicKey()
+
+	if algorithmSignerRequired {
+		algoSigner, ok := signer.(ssh.AlgorithmSigner)
+		if !ok {
+			return fmt.Errorf("signing algorithm %q requested but AlgorithmSigner is not available", algorithm)
+		}
+		sig, err := algoSigner.SignWithAlgorithm(rand.Reader, certBytesForSigning(cert), algorithm)
+		if err != nil {
+			return err
+		}
+		cert.Signature = sig
+		return nil
+	}
+
+	sig, err := signer.Sign(rand.Reader, certBytesForSigning(cert))
+	if err != nil {
+		return err
+	}
+	cert.Signature = sig
+	return nil
 }

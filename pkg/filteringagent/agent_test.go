@@ -13,7 +13,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
-	"github.com/aakso/ssh-inscribe/pkg/util"
+	"github.com/aakso/ssh-inscribe/pkg/keysigner"
 )
 
 type certsAndKeys struct {
@@ -78,11 +78,7 @@ func testDeps(t *testing.T) *certsAndKeys {
 		}
 		signer, err := ssh.NewSignerFromKey(ca)
 		checkErr(err)
-		algoSigner := &util.AlgorithmSignerWrapper{
-			Signer:    signer.(ssh.AlgorithmSigner),
-			Algorithm: signingAlgo,
-		}
-		err = cert.SignCert(rand.Reader, algoSigner)
+		err = keysigner.SignCertWithAlgorithm(cert, signer, signingAlgo)
 		checkErr(err)
 		return cert
 	}

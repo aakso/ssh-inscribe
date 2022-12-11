@@ -20,7 +20,7 @@ PKG_USER = sshi
 PKG_GROUP = sshi
 PKG_VARDIR = /var/lib/ssh-inscribe
 PKG_BIN_SUFFIX =
-GO_VERSION = 1.18.4
+GO_VERSION = 1.18.9
 GOFLAGS=-mod=vendor
 GOARCH=amd64
 

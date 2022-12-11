@@ -2,7 +2,6 @@ package keysigner
 
 import (
 	"bytes"
-	"crypto"
 	"fmt"
 	"os"
 	"path"
@@ -279,24 +278,25 @@ func TestSign(t *testing.T) {
 	defer srv.Close()
 
 	type algoPair struct {
-		opt          crypto.SignerOpts
+		algo         string
 		expectFormat string
 	}
 	testAlgos := []algoPair{
-		{opt: nil, expectFormat: "ssh-rsa"},
-		{opt: crypto.SHA256, expectFormat: "rsa-sha2-256"},
-		{opt: crypto.SHA512, expectFormat: "rsa-sha2-512"},
+		{algo: "", expectFormat: "ssh-rsa"},
+		{algo: ssh.KeyAlgoRSA, expectFormat: "ssh-rsa"},
+		{algo: ssh.KeyAlgoRSASHA256, expectFormat: "rsa-sha2-256"},
+		{algo: ssh.KeyAlgoRSASHA512, expectFormat: "rsa-sha2-512"},
 	}
 
 	assert.True(t, wait(srv.AgentPing))
 	if assert.NoError(t, srv.AddSigningKey(testCaPrivatePem, nil, "test-ca")) {
 		if assert.True(t, srv.Ready(), "service should be ready") {
 			for _, params := range testAlgos {
-				t.Run(params.expectFormat, func(t *testing.T) {
+				t.Run(fmt.Sprintf("request_%q_expect_%q", params.algo, params.expectFormat), func(t *testing.T) {
 					userCert := testCert()
-					assert.NoError(t, srv.SignCertificate(userCert, params.opt), "signing should work")
+					assert.NoError(t, srv.SignCertificate(userCert, params.algo), "signing should work")
 					assert.NoError(t, checkCert(userCert))
-					fmt.Println("certificate:", string(ssh.MarshalAuthorizedKey(userCert)))
+					t.Log("certificate:", string(ssh.MarshalAuthorizedKey(userCert)))
 					assert.Equal(t, params.expectFormat, userCert.Signature.Format)
 				})
 			}
@@ -358,10 +358,10 @@ func TestSmartCardSessionRecovery(t *testing.T) {
 	srv.pkcs11SessionLost = true
 
 	userCert := testCert()
-	if assert.Error(t, srv.SignCertificate(userCert, nil), "signing should fail") {
+	if assert.Error(t, srv.SignCertificate(userCert, ""), "signing should fail") {
 		// Wait until recovery has kicked in
 		if assert.True(t, wait(srv.Ready)) {
-			assert.NoError(t, srv.SignCertificate(userCert, nil), "signing should now work")
+			assert.NoError(t, srv.SignCertificate(userCert, ""), "signing should now work")
 		}
 	}
 }
@@ -393,7 +393,7 @@ func BenchmarkSmartCard(b *testing.B) {
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
 				userCert := testCert()
-				assert.NoError(b, smartCardSrv.SignCertificate(userCert, nil), "signing should work")
+				assert.NoError(b, smartCardSrv.SignCertificate(userCert, ""), "signing should work")
 			}
 		})
 	}

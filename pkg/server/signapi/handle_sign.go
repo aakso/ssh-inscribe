@@ -1,7 +1,6 @@
 package signapi
 
 import (
-	"crypto"
 	"io/ioutil"
 	"net/http"
 	"strconv"
@@ -98,20 +97,21 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 	certs := auth.MakeCertificates(pubKey, actx, validBefore, int(maxPrincipalsPerCertificate))
 
 	// Signing option
-	var opts crypto.SignerOpts
+	var algo string
 	switch c.QueryParam("signing_option") {
 	case "", "ssh-rsa":
+		algo = ssh.KeyAlgoRSA
 	case "rsa-sha2-256":
-		opts = crypto.SHA256
+		algo = ssh.KeyAlgoRSASHA256
 	case "rsa-sha2-512":
-		opts = crypto.SHA512
+		algo = ssh.KeyAlgoRSASHA512
 	default:
 		return echo.NewHTTPError(http.StatusBadRequest, errors.New("invalid signing_option"))
 	}
 
 	var marshaledCerts []byte
 	for _, cert := range certs {
-		if err := sa.signer.SignCertificate(cert, opts); err != nil {
+		if err := sa.signer.SignCertificate(cert, algo); err != nil {
 			err = errors.Wrap(err, "cannot sign")
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
