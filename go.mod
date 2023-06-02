@@ -31,6 +31,7 @@ require (
 )
 
 require (
+	github.com/chzyer/test v1.0.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dchest/bcrypt_pbkdf v0.0.0-20150205184540-83f37f9c154a // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
