@@ -20,6 +20,7 @@ var CaCmd = &cobra.Command{
 var ShowCaCmd = &cobra.Command{
 	Use:               "show",
 	Short:             "Show CA public key",
+	Args:              cobra.NoArgs,
 	ValidArgsFunction: cobra.NoFileCompletions,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := &client.Client{

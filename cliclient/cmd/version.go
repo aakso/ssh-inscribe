@@ -15,6 +15,7 @@ var versionCmd = &cobra.Command{
 	Use:               "version",
 	Short:             "Show server version",
 	Long:              "Show server version",
+	Args:              cobra.NoArgs,
 	ValidArgsFunction: cobra.NoFileCompletions,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := &client.Client{Config: ClientConfig}

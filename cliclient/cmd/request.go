@@ -12,6 +12,7 @@ import (
 var ReqCmd = &cobra.Command{
 	Use:               "req",
 	Short:             "Login to server and generate SSH certificate",
+	Args:              cobra.NoArgs,
 	ValidArgsFunction: cobra.NoFileCompletions,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := &client.Client{
