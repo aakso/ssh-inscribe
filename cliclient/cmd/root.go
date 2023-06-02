@@ -235,9 +235,7 @@ func init() {
 		ClientConfig.GenerateKeypairType,
 		"Set ad-hoc keypair type. Valid values: rsa, ed25519 ($SSH_INSCRIBE_GENKEY_TYPE)",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("keytype", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return []string{"rsa", "ed25519"}, cobra.ShellCompDirectiveNoFileComp
-	})
+	_ = RootCmd.RegisterFlagCompletionFunc("keytype", cobra.FixedCompletions([]string{"rsa", "ed25519"}, cobra.ShellCompDirectiveNoFileComp))
 
 	if ks := os.Getenv("SSH_INSCRIBE_GENKEY_SIZE"); ks != "" {
 		size, _ := strconv.ParseInt(ks, 10, 0)
@@ -270,9 +268,7 @@ func init() {
 		"Optional flag to be used in signing. This is only used if the CA's key is RSA. ($SSH_INSCRIBE_SIGNING_OPTION)\n"+
 			"If not, this option is silently ignored. Valid values: rsa-sha2-256 and rsa-sha2-512",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("signing-option", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		return []string{"rsa-sha2-256", "rsa-sha2-512"}, cobra.ShellCompDirectiveNoFileComp
-	})
+	_ = RootCmd.RegisterFlagCompletionFunc("signing-option", cobra.FixedCompletions([]string{"rsa-sha2-256", "rsa-sha2-512"}, cobra.ShellCompDirectiveNoFileComp))
 
 	if opt := os.Getenv("SSH_INSCRIBE_MAX_PRINCIPALS_PER_CERTIFICATE"); opt != "" {
 		iv, _ := strconv.ParseInt(opt, 10, 64)
