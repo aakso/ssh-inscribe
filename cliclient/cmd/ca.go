@@ -59,9 +59,10 @@ var AddCaCmd = &cobra.Command{
 }
 
 var ResponseCmd = &cobra.Command{
-	Use:   "response",
-	Short: "Send a response to a CA challenge in order to decrypt and add the CA key",
-	Args:  cobra.MaximumNArgs(1),
+	Use:               "response",
+	Short:             "Send a response to a CA challenge in order to decrypt and add the CA key",
+	Args:              cobra.NoArgs,
+	ValidArgsFunction: cobra.NoFileCompletions,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := &client.Client{
 			Config: ClientConfig,
