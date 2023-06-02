@@ -29,11 +29,11 @@ var ExecCmd = &cobra.Command{
 	Use:                "exec",
 	Short:              "Invoke any command with signed certificate on ssh-agent",
 	DisableFlagParsing: true,
+	ValidArgsFunction:  cobra.NoFileCompletions,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ignoreFlagsAfter("exec")
 		return runExecCommand(RootCmd.Flags().Args()[2:])
 	},
-	ValidArgsFunction: cobra.NoFileCompletions,
 }
 var (
 	agentFilter = true
