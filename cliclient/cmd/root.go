@@ -266,9 +266,9 @@ func init() {
 		"o",
 		ClientConfig.SigningOption,
 		"Optional flag to be used in signing. This is only used if the CA's key is RSA. ($SSH_INSCRIBE_SIGNING_OPTION)\n"+
-			"If not, this option is silently ignored. Valid values: rsa-sha2-256 and rsa-sha2-512",
+			"If not, this option is silently ignored. Valid values: rsa-sha2-256, rsa-sha2-512, and ssh-rsa",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("signing-option", cobra.FixedCompletions([]string{"rsa-sha2-256", "rsa-sha2-512"}, cobra.ShellCompDirectiveNoFileComp))
+	_ = RootCmd.RegisterFlagCompletionFunc("signing-option", cobra.FixedCompletions([]string{"rsa-sha2-256", "rsa-sha2-512", "ssh-rsa"}, cobra.ShellCompDirectiveNoFileComp))
 
 	if opt := os.Getenv("SSH_INSCRIBE_MAX_PRINCIPALS_PER_CERTIFICATE"); opt != "" {
 		iv, _ := strconv.ParseInt(opt, 10, 64)
