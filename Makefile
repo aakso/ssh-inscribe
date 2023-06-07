@@ -9,6 +9,8 @@ dist:
 	@rm -rf dist
 	docker run --rm \
 		--user "$(shell id -u):$(shell id -g)" \
+		--env CI \
+		--env GITHUB_TOKEN \
 		--env GOCACHE=/tmp/go-build \
 		--volume "$$PWD:/work" \
 		--workdir /work \

@@ -59,3 +59,8 @@ nfpms:
     formats: *formats
 checksum:
   name_template: checksums.txt
+changelog:
+  use: github
+  filters:
+    exclude:
+      - ^Merge pull request
