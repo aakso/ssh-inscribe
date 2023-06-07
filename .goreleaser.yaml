@@ -40,7 +40,9 @@ nfpms:
     vendor: &vendor Anton Aksola
     homepage: &homepage https://github.com/aakso/ssh-inscribe
     maintainer: &maintainer Anton Aksola <aakso@iki.fi>
+    description: SSH CA server
     license: &license Apache-2.0
+    section: &section net
     formats: &formats [deb, rpm]
     contents:
       - src: etc/ssh-inscribe.service
@@ -55,6 +57,8 @@ nfpms:
     scripts:
       preinstall: etc/server-pre-install.sh
       postinstall: etc/server-post-install.sh
+    rpm:
+      group: &rpm_group Applications/Internet
   - id: sshi
     package_name: sshi
     file_name_template: "{{ .ConventionalFileName }}"
@@ -62,8 +66,12 @@ nfpms:
     vendor: *vendor
     homepage: *homepage
     maintainer: *maintainer
+    description: SSH CA client
     license: *license
+    section: *section
     formats: *formats
+    rpm:
+      group: *rpm_group
 checksum:
   name_template: checksums.txt
 changelog:
