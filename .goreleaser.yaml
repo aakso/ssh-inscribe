@@ -45,6 +45,13 @@ nfpms:
     contents:
       - src: etc/ssh-inscribe.service
         dst: /usr/lib/systemd/system/ssh-inscribe.service
+      - dst: /etc/ssh-inscribe
+        type: dir
+      - dst: /var/lib/ssh-inscribe
+        type: dir
+        file_info:
+          mode: 0775
+          group: sshi
     scripts:
       preinstall: etc/server-pre-install.sh
       postinstall: etc/server-post-install.sh

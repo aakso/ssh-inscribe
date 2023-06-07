@@ -8,6 +8,3 @@ getent passwd sshi ||
             --home-dir /var/lib/ssh-inscribe \
             --shell /sbin/nologin \
             sshi
-mkdir -p /var/lib/ssh-inscribe
-chgrp sshi /var/lib/ssh-inscribe
-chmod g+w /var/lib/ssh-inscribe
