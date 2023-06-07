@@ -41,7 +41,7 @@ nfpms:
     homepage: &homepage https://github.com/aakso/ssh-inscribe
     maintainer: &maintainer Anton Aksola <aakso@iki.fi>
     license: &license Apache-2.0
-    formats: &formats [rpm]
+    formats: &formats [deb, rpm]
     contents:
       - src: etc/ssh-inscribe.service
         dst: /usr/lib/systemd/system/ssh-inscribe.service
