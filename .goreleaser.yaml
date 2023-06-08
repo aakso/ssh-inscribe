@@ -54,6 +54,20 @@ nfpms:
         file_info:
           mode: 0775
           group: sshi
+      - src: LICENSE
+        dst: /usr/share/doc/ssh-inscribe/LICENSE
+        packager: deb
+      - src: LICENSE
+        dst: /usr/share/doc/ssh-inscribe/LICENSE
+        type: license
+        packager: rpm
+      - src: README.md
+        dst: /usr/share/doc/ssh-inscribe/README.md
+        packager: deb
+      - src: README.md
+        dst: /usr/share/doc/ssh-inscribe/README.md
+        type: readme
+        packager: rpm
     scripts:
       preinstall: etc/server-pre-install.sh
       postinstall: etc/server-post-install.sh
@@ -70,6 +84,21 @@ nfpms:
     license: *license
     section: *section
     formats: *formats
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/sshi/LICENSE
+        packager: deb
+      - src: LICENSE
+        dst: /usr/share/doc/sshi/LICENSE
+        type: license
+        packager: rpm
+      - src: README.md
+        dst: /usr/share/doc/sshi/README.md
+        packager: deb
+      - src: README.md
+        dst: /usr/share/doc/sshi/README.md
+        type: readme
+        packager: rpm
     rpm:
       group: *rpm_group
 checksum:
