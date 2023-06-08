@@ -103,6 +103,10 @@ nfpms:
       group: *rpm_group
 checksum:
   name_template: checksums.txt
+release:
+  footer: >-
+    apt and dnf/yum package repositories are available at
+    [Packagecloud](https://packagecloud.io/aakso/ssh-inscribe).
 changelog:
   use: github
   filters:
