@@ -19,9 +19,9 @@ var ReqCmd = &cobra.Command{
 			Config: ClientConfig,
 		}
 		defer c.Close()
-		if b, _ := cmd.Flags().GetBool("clear"); b == true {
+		if b, _ := cmd.Flags().GetBool("clear"); b {
 			return c.Logout()
-		} else if b, _ := cmd.Flags().GetBool("list-logins"); b == true {
+		} else if b, _ := cmd.Flags().GetBool("list-logins"); b {
 			discoverResult, err := c.GetAuthenticators()
 			if err != nil {
 				return err

@@ -141,10 +141,7 @@ func testCert() *ssh.Certificate {
 func checkCert(cert *ssh.Certificate) error {
 	cc := &ssh.CertChecker{
 		IsUserAuthority: func(auth ssh.PublicKey) bool {
-			if bytes.Equal(auth.Marshal(), testCaPublicParsed.Marshal()) {
-				return true
-			}
-			return false
+			return bytes.Equal(auth.Marshal(), testCaPublicParsed.Marshal())
 		},
 	}
 	return cc.CheckCert("testprincipal", cert)

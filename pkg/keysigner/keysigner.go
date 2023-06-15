@@ -127,7 +127,7 @@ func (ks *KeySignerService) Ready() bool {
 	if ks.selectedSigningKey == nil {
 		return false
 	}
-	if ks.signTestFailed == true {
+	if ks.signTestFailed {
 		return false
 	}
 	keys, err := ks.client.List()
@@ -135,9 +135,9 @@ func (ks *KeySignerService) Ready() bool {
 		return false
 	}
 	for _, key := range keys {
-		if bytes.Compare(key.Blob, ks.selectedSigningKey.Blob) == 0 {
+		if bytes.Equal(key.Blob, ks.selectedSigningKey.Blob) {
 			// Check if we are using pkcs11 and it has failed
-			if ks.pkcs11Provider != "" && ks.isKnownSmartCardKey(key) && ks.pkcs11SessionLost == true {
+			if ks.pkcs11Provider != "" && ks.isKnownSmartCardKey(key) && ks.pkcs11SessionLost {
 				return false
 			}
 			return true
@@ -324,7 +324,7 @@ func (ks *KeySignerService) getSigner() (ssh.Signer, error) {
 		return nil, errors.New("service is not ready for signing")
 	}
 	for _, signer := range signers {
-		if bytes.Compare(signer.PublicKey().Marshal(), ks.selectedSigningKey.Blob) == 0 {
+		if bytes.Equal(signer.PublicKey().Marshal(), ks.selectedSigningKey.Blob) {
 			return signer, nil
 		}
 	}

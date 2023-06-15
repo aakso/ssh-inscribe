@@ -1158,7 +1158,7 @@ func (c *Client) printCertificate(cert *ssh.Certificate) {
 	fmt.Printf("\n%20s: %s", "Valid from", validFrom)
 	fmt.Printf("\n%20s: %s", "Valid to", validTo)
 	if validTo.After(time.Now()) {
-		fmt.Printf(" (expires in %s)", validTo.Sub(time.Now()))
+		fmt.Printf(" (expires in %s)", time.Until(validTo))
 	}
 	fmt.Printf("\n%20s:", "Principals")
 	for _, p := range cert.ValidPrincipals {

@@ -98,7 +98,7 @@ func Setup() error {
 
 	if len(conf.PackageLevel) > 0 {
 		pkgs := []string{}
-		for k, _ := range pkgLoggers {
+		for k := range pkgLoggers {
 			pkgs = append(pkgs, k)
 		}
 		for setpkg, setlevel := range conf.PackageLevel {

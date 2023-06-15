@@ -202,7 +202,7 @@ func RecoverHandler(lf logrus.Fields) echo.MiddlewareFunc {
 					}
 					stack := make([]byte, 4<<10)
 					length := runtime.Stack(stack, false)
-					log.WithError(err).WithField("stack", fmt.Sprintf("%s", stack[:length])).Error("PANIC RECOVER")
+					log.WithError(err).WithField("stack", string(stack[:length])).Error("PANIC RECOVER")
 					c.Error(err)
 				}
 			}()

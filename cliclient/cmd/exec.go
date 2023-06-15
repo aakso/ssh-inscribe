@@ -136,7 +136,6 @@ func startAdhocAgent(ln net.Listener, agentImpl agent.Agent) {
 	}()
 	wg.Add(1)
 	log.Debug("agent started")
-	return
 }
 
 func runCommand(args []string) error {
