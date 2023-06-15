@@ -329,12 +329,12 @@ func Test_filteringAgent_Sign(t *testing.T) {
 
 	data := []byte("fake")
 	signature, err := fa.Sign(deps.ca1Cert1Rsa, data)
-	if !assert.NoError(t, err) {
-		return
+	if assert.NoError(t, err) {
+		signer, err := ssh.NewSignerFromKey(deps.ca1Cert1KeyRsa)
+		if assert.NoError(t, err) {
+			assert.NoError(t, signer.PublicKey().Verify(data, signature))
+		}
 	}
-
-	signer, err := ssh.NewSignerFromKey(deps.ca1Cert1KeyRsa)
-	assert.NoError(t, signer.PublicKey().Verify(data, signature))
 
 	t.Run("FilteredCert", func(t *testing.T) {
 		data := []byte("fake2")
