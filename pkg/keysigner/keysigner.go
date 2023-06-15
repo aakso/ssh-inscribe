@@ -544,7 +544,6 @@ func unmarshal(packet []byte) (interface{}, error) {
 	if len(packet) < 1 {
 		return nil, errors.New("agent: empty packet")
 	}
-	var msg interface{}
 	switch packet[0] {
 	case agentFailure:
 		return new(failureAgentMsg), nil
@@ -553,7 +552,6 @@ func unmarshal(packet []byte) (interface{}, error) {
 	default:
 		return nil, errors.Errorf("agent: unknown type tag %d", packet[0])
 	}
-	return msg, nil
 }
 
 // certBytesForSigning is a copy of (*ssh.Certificate).certBytesForSigning for us to be able to support the legacy
