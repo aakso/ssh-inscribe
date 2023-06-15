@@ -1,0 +1,114 @@
+builds:
+  - id: &build_id_ssh_inscribe ssh-inscribe
+    main: .
+    binary: ssh-inscribe
+    ldflags:
+      - -X github.com/aakso/ssh-inscribe/pkg/globals.version={{ .Version }}
+      - -X github.com/aakso/ssh-inscribe/pkg/globals.confDir=/etc/ssh-inscribe
+      - -X github.com/aakso/ssh-inscribe/pkg/globals.varDir=/var/lib/ssh-inscribe
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: linux
+        goarch: arm64
+  - id: &build_id_sshi sshi
+    main: ./cliclient/sshi
+    binary: sshi
+    ldflags:
+      - -X github.com/aakso/ssh-inscribe/pkg/globals.version={{ .Version }}
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: linux
+        goarch: arm64
+      - goos: windows
+        goarch: arm64
+archives:
+  - format: binary
+    name_template: >-
+      {{ .Binary }}-
+      {{- .Os }}-
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+nfpms:
+  - id: ssh-inscribe
+    package_name: ssh-inscribe
+    file_name_template: "{{ .ConventionalFileName }}"
+    builds: [*build_id_ssh_inscribe]
+    vendor: &vendor Anton Aksola
+    homepage: &homepage https://github.com/aakso/ssh-inscribe
+    maintainer: &maintainer Anton Aksola <aakso@iki.fi>
+    description: SSH CA server
+    license: &license Apache-2.0
+    section: &section net
+    formats: &formats [deb, rpm]
+    contents:
+      - src: etc/ssh-inscribe.service
+        dst: /usr/lib/systemd/system/ssh-inscribe.service
+      - dst: /etc/ssh-inscribe
+        type: dir
+      - dst: /var/lib/ssh-inscribe
+        type: dir
+        file_info:
+          mode: 0775
+          group: sshi
+      - src: LICENSE
+        dst: /usr/share/doc/ssh-inscribe/LICENSE
+        packager: deb
+      - src: LICENSE
+        dst: /usr/share/doc/ssh-inscribe/LICENSE
+        type: license
+        packager: rpm
+      - src: README.md
+        dst: /usr/share/doc/ssh-inscribe/README.md
+        packager: deb
+      - src: README.md
+        dst: /usr/share/doc/ssh-inscribe/README.md
+        type: readme
+        packager: rpm
+    scripts:
+      preinstall: etc/server-pre-install.sh
+      postinstall: etc/server-post-install.sh
+    rpm:
+      group: &rpm_group Applications/Internet
+  - id: sshi
+    package_name: sshi
+    file_name_template: "{{ .ConventionalFileName }}"
+    builds: [*build_id_sshi]
+    vendor: *vendor
+    homepage: *homepage
+    maintainer: *maintainer
+    description: SSH CA client
+    license: *license
+    section: *section
+    formats: *formats
+    contents:
+      - src: LICENSE
+        dst: /usr/share/doc/sshi/LICENSE
+        packager: deb
+      - src: LICENSE
+        dst: /usr/share/doc/sshi/LICENSE
+        type: license
+        packager: rpm
+      - src: README.md
+        dst: /usr/share/doc/sshi/README.md
+        packager: deb
+      - src: README.md
+        dst: /usr/share/doc/sshi/README.md
+        type: readme
+        packager: rpm
+    rpm:
+      group: *rpm_group
+checksum:
+  name_template: checksums.txt
+release:
+  footer: >-
+    apt and dnf/yum package repositories are available at
+    [Packagecloud](https://packagecloud.io/aakso/ssh-inscribe).
+changelog:
+  use: github
+  filters:
+    exclude:
+      - ^Merge pull request

@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+    tags: ["*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Build
+        run: |
+          make dist GORELEASER_ARGS="${{ !startsWith(github.ref, 'refs/tags/') && '--snapshot' || '' }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload to Packagecloud
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          gem install --no-document --user-install --bindir ~/.local/bin package_cloud
+          export CLICOLOR_FORCE=1
+          ~/.local/bin/package_cloud push ${{ github.repository }}/any/any dist/*.deb
+          ~/.local/bin/package_cloud push ${{ github.repository }}/rpm_any/rpm_any dist/*.rpm
+        env:
+          PACKAGECLOUD_TOKEN: ${{ secrets.PACKAGECLOUD_TOKEN }}

@@ -6,7 +6,9 @@ Feedback would be appreciated.
 - [ssh-inscribe - SSH CA Client/Server](#ssh-inscribe---ssh-ca-clientserver)
     - [Overview](#overview)
     - [Requirements](#requirements)
-    - [Development version installation](#development-version-installation)
+    - [Installation](#installation)
+      - [Released version](#released-version)
+      - [Development version](#development-version)
     - [Quick start (flat file authentication)](#quick-start-flat-file-authentication)
         - [Install and configure the server](#install-and-configure-the-server)
     - [Configure your hosts to trust the CA public key](#configure-your-hosts-to-trust-the-ca-public-key)
@@ -40,7 +42,16 @@ For client you need:
 - `ssh` binary in path to use the ssh subcommand
 - `ssh-agent` running for convenient use
 
-## Development version installation
+## Installation
+
+### Released version
+Prebuilt binaries and packages are available at
+[project releases](https://github.com/aakso/ssh-inscribe/releases).
+
+apt and dnf/yum package repositories are available at
+[Packagecloud](https://packagecloud.io/aakso/ssh-inscribe).
+
+### Development version
 ```
 go install github.com/aakso/ssh-inscribe/...@latest
 ```
