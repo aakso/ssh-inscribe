@@ -12,9 +12,11 @@ import (
 
 // versionCmd represents the version command
 var versionCmd = &cobra.Command{
-	Use:   "version",
-	Short: "Show server version",
-	Long:  "Show server version",
+	Use:               "version",
+	Short:             "Show server version",
+	Long:              "Show server version",
+	Args:              cobra.NoArgs,
+	ValidArgsFunction: cobra.NoFileCompletions,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c := &client.Client{Config: ClientConfig}
 		fmt.Printf("local: %s\n", globals.Version())
@@ -29,7 +31,6 @@ var versionCmd = &cobra.Command{
 		}
 		return nil
 	},
-	ValidArgsFunction: cobra.NoFileCompletions,
 }
 
 func init() {

@@ -84,11 +84,11 @@ var SshCmd = &cobra.Command{
 	Use:                "ssh",
 	Short:              "Invoke ssh command with signed certificate on ssh-agent",
 	DisableFlagParsing: true,
+	ValidArgsFunction:  sshHostnames,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ignoreFlagsAfter("ssh")
 		return runExecCommand(RootCmd.Flags().Args()[1:])
 	},
-	ValidArgsFunction: sshHostnames,
 }
 
 func init() {
