@@ -99,9 +99,9 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 	// Signing option
 	var algo string
 	switch c.QueryParam("signing_option") {
-	case "", "ssh-rsa":
+	case "ssh-rsa":
 		algo = ssh.KeyAlgoRSA
-	case "rsa-sha2-256":
+	case "rsa-sha2-256", "":
 		algo = ssh.KeyAlgoRSASHA256
 	case "rsa-sha2-512":
 		algo = ssh.KeyAlgoRSASHA512
