@@ -308,13 +308,15 @@ func TestGetPublicKey(t *testing.T) {
 	defer srv.KillAgent()
 	defer srv.Close()
 
-	key, err := srv.GetPublicKey()
+	_, err := srv.GetPublicKey()
 	assert.Error(t, err)
 	assert.True(t, wait(srv.AgentPing))
 	addKey(srv, testCaPrivate)
 	assert.True(t, wait(srv.Ready))
-	key, err = srv.GetPublicKey()
-	assert.NotNil(t, key)
+	key, err := srv.GetPublicKey()
+	if assert.NoError(t, err) {
+		assert.NotNil(t, key)
+	}
 }
 
 // This test assumes there is usable key on the smartcard
