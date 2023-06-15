@@ -71,6 +71,13 @@ nfpms:
     scripts:
       preinstall: etc/server-pre-install.sh
       postinstall: etc/server-post-install.sh
+    overrides:
+      deb:
+        dependencies:
+          - openssh-client
+      rpm:
+        dependencies:
+          - /usr/bin/ssh-agent
     rpm:
       group: &rpm_group Applications/Internet
   - id: sshi
@@ -99,6 +106,13 @@ nfpms:
         dst: /usr/share/doc/sshi/README.md
         type: readme
         packager: rpm
+    overrides:
+      deb:
+        dependencies:
+          - openssh-client
+      rpm:
+        dependencies:
+          - /usr/bin/ssh-agent
     rpm:
       group: *rpm_group
 checksum:
