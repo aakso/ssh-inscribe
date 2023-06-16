@@ -1,7 +1,7 @@
 package signapi
 
 import (
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -55,7 +55,7 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 		}
 	}
 
-	body, err := ioutil.ReadAll(c.Request().Body)
+	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		err = errors.Wrap(err, "cannot read public key")
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())

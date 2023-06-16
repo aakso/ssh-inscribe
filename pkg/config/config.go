@@ -1,7 +1,7 @@
 package config
 
 import (
-	"io/ioutil"
+	"os"
 	"strings"
 
 	"github.com/ghodss/yaml"
@@ -14,7 +14,7 @@ var globalConfig map[string]interface{} = make(map[string]interface{})
 var globalDefaults map[string]interface{} = make(map[string]interface{})
 
 func LoadConfig(loc string) error {
-	data, err := ioutil.ReadFile(loc)
+	data, err := os.ReadFile(loc)
 	if err != nil {
 		return errors.Wrap(err, "cannot load configuration")
 	}

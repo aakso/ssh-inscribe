@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
@@ -57,7 +56,7 @@ func runExecCommand(args []string) error {
 				return err
 			}
 		default:
-			tmpFile, err := ioutil.TempFile(os.TempDir(), "sshi_adhocagent")
+			tmpFile, err := os.CreateTemp("", "sshi_adhocagent")
 			if err != nil {
 				return err
 			}

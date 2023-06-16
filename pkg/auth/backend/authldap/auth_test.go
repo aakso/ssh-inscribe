@@ -4,7 +4,7 @@ package authldap
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -34,7 +34,7 @@ func initServer() {
 	if verbose {
 		logger = testLog.WithField("component", "testLDAPServer")
 	} else {
-		logger = &logrus.Logger{Out: ioutil.Discard}
+		logger = &logrus.Logger{Out: io.Discard}
 	}
 	testServer = newTestServer(logger)
 	time.Sleep(50 * time.Millisecond)

@@ -3,7 +3,7 @@ package server
 import (
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"runtime"
 	"time"
@@ -33,7 +33,7 @@ type Server struct {
 func (s *Server) Start() error {
 	var err error
 	log := Log.WithField("server_version", globals.Version())
-	s.web.Logger.SetOutput(ioutil.Discard)
+	s.web.Logger.SetOutput(io.Discard)
 
 	cc, err := s.config.GetCertificateMap()
 	if err != nil {
