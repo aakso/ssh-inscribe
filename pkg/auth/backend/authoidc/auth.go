@@ -238,7 +238,7 @@ func (ao *AuthOIDC) fillAuthContext(actx *auth.AuthContext, claims map[string]in
 	actx.Status = auth.StatusCompleted
 }
 
-// Extrack idtoken and fill auth context
+// Extract idtoken and fill auth context
 func (ao *AuthOIDC) validateToken(token *oauth2.Token) (map[string]interface{}, error) {
 	log := ao.log.WithField("action", "validateToken")
 	jwtToken, ok := token.Extra("id_token").(string)
