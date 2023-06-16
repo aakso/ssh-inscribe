@@ -174,10 +174,14 @@ func errorHandler(err error, c echo.Context) {
 		msg = http.StatusText(code)
 	}
 	if !c.Response().Committed {
+		var rErr error
 		if c.Request().Method == echo.HEAD { // Issue #608
-			c.NoContent(code)
+			rErr = c.NoContent(code)
 		} else {
-			c.String(code, fmt.Sprintf("%s", msg))
+			rErr = c.String(code, fmt.Sprintf("%s", msg))
+		}
+		if rErr != nil {
+			Log.WithError(rErr).Warn("error sending error response")
 		}
 	}
 }
