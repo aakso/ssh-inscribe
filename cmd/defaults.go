@@ -12,9 +12,11 @@ import (
 
 // serverCmd represents the server command
 var defaultsCmd = &cobra.Command{
-	Use:   "defaults",
-	Short: "Print configuration defaults",
-	Long:  `Print configuration defaults`,
+	Use:               "defaults",
+	Short:             "Print configuration defaults",
+	Long:              `Print configuration defaults`,
+	Args:              cobra.NoArgs,
+	ValidArgsFunction: cobra.NoFileCompletions,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		out, _ := yaml.Marshal(config.GetAllDefaults())
 		fmt.Println(string(out))
