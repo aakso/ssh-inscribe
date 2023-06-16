@@ -12,7 +12,7 @@ var loadConf []byte = []byte(
 test1:
   test2:
     test3:
-      firstfield: overriden
+      firstfield: overridden
   test-123:
     foo: bar
 `)
@@ -46,7 +46,7 @@ func TestLoadConfig(t *testing.T) {
 		if assert.NoError(err) {
 			conf, _ := val.(*testConf)
 			assert.NotNil(conf)
-			assert.Equal("overriden", conf.FirstField)
+			assert.Equal("overridden", conf.FirstField)
 			assert.Equal(123, conf.SecondField)
 		}
 	}

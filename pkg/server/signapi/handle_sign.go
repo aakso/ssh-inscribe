@@ -76,7 +76,7 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 		if time.Until(validBefore) > sa.maxCertLife {
-			return echo.NewHTTPError(http.StatusBadRequest, errors.Errorf("maxmimum lifetime is %s", sa.maxCertLife).Error())
+			return echo.NewHTTPError(http.StatusBadRequest, errors.Errorf("maximum lifetime is %s", sa.maxCertLife).Error())
 		}
 	}
 
