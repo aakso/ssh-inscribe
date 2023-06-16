@@ -64,6 +64,8 @@ nfpms:
         file_info:
           mode: 0775
           group: sshi
+      - src: etc/completion-loader.bash
+        dst: /usr/share/bash-completion/completions/ssh-inscribe
       - src: LICENSE
         dst: /usr/share/doc/ssh-inscribe/LICENSE
         packager: deb
@@ -102,6 +104,8 @@ nfpms:
     section: *section
     formats: *formats
     contents:
+      - src: etc/completion-loader.bash
+        dst: /usr/share/bash-completion/completions/sshi
       - src: LICENSE
         dst: /usr/share/doc/sshi/LICENSE
         packager: deb
