@@ -1220,13 +1220,13 @@ func getCurrentUsername() string {
 func interactiveCredentialsPrompt(name, realm, credentialType, def string) ([]byte, error) {
 	var ret []byte
 	prompt := fmt.Sprintf("Enter %s for %q (%s): ",
-		strings.Title(credentialType),
+		strings.Title(credentialType), //nolint:staticcheck // not worth the x/text/cases and x/text/language deps
 		name,
 		realm,
 	)
 	if def != "" {
 		prompt = fmt.Sprintf("Enter %s for %q (%s) [default: %s]: ",
-			strings.Title(credentialType),
+			strings.Title(credentialType), //nolint:staticcheck // not worth the x/text/cases and x/text/language deps
 			name,
 			realm,
 			def,

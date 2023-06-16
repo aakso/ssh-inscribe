@@ -49,7 +49,7 @@ func (s *Server) Start() error {
 			tlsServer.TLSConfig.Certificates = make([]tls.Certificate, 1)
 			tlsServer.TLSConfig.Certificates[0] = cc.Certificates[0]
 		} else {
-			tlsServer.TLSConfig.NameToCertificate = cc.CertificateMap
+			tlsServer.TLSConfig.NameToCertificate = cc.CertificateMap //nolint:staticcheck // user config
 			tlsServer.TLSConfig.Certificates = cc.Certificates
 		}
 
