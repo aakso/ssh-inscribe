@@ -1091,7 +1091,7 @@ func (c *Client) initREST() error {
 	}
 	parsed, err := url.Parse(c.Config.URL)
 	if err != nil {
-		errors.Wrap(err, "cannot parse url")
+		return errors.Wrap(err, "cannot parse url")
 	}
 	if c.Config.Retries < 0 {
 		return errors.New("retries cannot be negative")
