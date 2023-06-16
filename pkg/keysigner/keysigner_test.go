@@ -183,7 +183,9 @@ func setup() {
 func teardown() {
 	fmt.Println("Teardown")
 	if smartCardSrv != nil {
-		smartCardSrv.RemoveSmartcard(smartCardId)
+		if err := smartCardSrv.RemoveSmartcard(smartCardId); err != nil {
+			fmt.Printf("remove smart card: %v\n", err)
+		}
 		smartCardSrv.Close()
 		smartCardSrv.KillAgent()
 	}
@@ -374,10 +376,11 @@ func TestSigningTest(t *testing.T) {
 	assert.True(t, wait(srv.AgentPing))
 	addKey(srv, testCaPrivate)
 	assert.True(t, wait(srv.Ready))
-	srv.client.RemoveAll()
-	assert.True(t, wait(func() bool {
-		return srv.Ready() == false
-	}))
+	if assert.NoError(t, srv.client.RemoveAll()) {
+		assert.True(t, wait(func() bool {
+			return !srv.Ready()
+		}))
+	}
 }
 
 // This test assumes there is usable key on the smartcard
