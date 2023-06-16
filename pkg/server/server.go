@@ -131,7 +131,9 @@ func Build() (*Server, error) {
 	// Setup PKCS11 if required
 	if conf.PKCS11Provider != "" && conf.PKCS11Pin != "" {
 		// Try to readd (NitroKey issue)
-		signer.RemoveSmartcard(conf.PKCS11Provider)
+		if err = signer.RemoveSmartcard(conf.PKCS11Provider); err != nil {
+			return nil, errors.Wrap(err, "pkcs11 initialize error")
+		}
 		if err := signer.AddSmartcard(conf.PKCS11Provider, conf.PKCS11Pin); err != nil {
 			return nil, errors.Wrap(err, "pkcs11 initialize error")
 		}
