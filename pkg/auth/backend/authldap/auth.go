@@ -45,10 +45,6 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		log = log.WithField(auth.MetaAuditID, v)
 	}
 
-	if creds == nil {
-		return nil, false
-	}
-
 	newctx := &auth.AuthContext{
 		Status:          auth.StatusCompleted,
 		Parent:          pctx,
