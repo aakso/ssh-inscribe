@@ -25,7 +25,6 @@ type AuthenticatorListEntry struct {
 type SignApi struct {
 	auth            map[string]auth.Authenticator
 	authList        []AuthenticatorListEntry
-	defaultAuth     []string
 	signer          *keysigner.KeySignerService
 	tkey            []byte
 	defaultCertLife time.Duration
