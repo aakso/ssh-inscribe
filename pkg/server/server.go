@@ -131,7 +131,9 @@ func Build() (*Server, error) {
 	// Setup PKCS11 if required
 	if conf.PKCS11Provider != "" && conf.PKCS11Pin != "" {
 		// Try to readd (NitroKey issue)
-		signer.RemoveSmartcard(conf.PKCS11Provider)
+		if err = signer.RemoveSmartcard(conf.PKCS11Provider); err != nil {
+			return nil, errors.Wrap(err, "pkcs11 initialize error")
+		}
 		if err := signer.AddSmartcard(conf.PKCS11Provider, conf.PKCS11Pin); err != nil {
 			return nil, errors.Wrap(err, "pkcs11 initialize error")
 		}
@@ -172,10 +174,14 @@ func errorHandler(err error, c echo.Context) {
 		msg = http.StatusText(code)
 	}
 	if !c.Response().Committed {
+		var rErr error
 		if c.Request().Method == echo.HEAD { // Issue #608
-			c.NoContent(code)
+			rErr = c.NoContent(code)
 		} else {
-			c.String(code, fmt.Sprintf("%s", msg))
+			rErr = c.String(code, fmt.Sprintf("%s", msg))
+		}
+		if rErr != nil {
+			Log.WithError(rErr).Warn("error sending error response")
 		}
 	}
 }

@@ -252,7 +252,9 @@ func (ao *AuthOIDC) validateToken(token *oauth2.Token) (map[string]interface{}, 
 		return nil, errors.Wrap(err, "verify error")
 	}
 	claims := map[string]interface{}{}
-	IDToken.Claims(&claims)
+	if err = IDToken.Claims(&claims); err != nil {
+		return nil, errors.Wrap(err, "claims unmarshal error")
+	}
 	log.WithField("claims", claims).Debug("got claims")
 
 	return claims, nil

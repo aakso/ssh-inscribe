@@ -34,7 +34,11 @@ func newTestServer(logger logrus.StdLogger) *ldapserver.Server {
 		Label("SearchGroups")
 	server.Handle(routes)
 
-	go server.ListenAndServe("127.0.0.1:0")
+	go func() {
+		if err := server.ListenAndServe("127.0.0.1:0"); err != nil {
+			logger.Fatalf("listen and serve: %v", err)
+		}
+	}()
 	return server
 }
 

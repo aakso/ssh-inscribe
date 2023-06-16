@@ -30,8 +30,7 @@ func serverJWKS() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		out, _ := json.Marshal(keys)
-		w.Write(out)
+		_ = json.NewEncoder(w).Encode(keys)
 	}))
 }
 
@@ -44,8 +43,7 @@ func serverOIDCDiscover(jwksURI string) *httptest.Server {
 			"jwks_uri": jwksURI,
 		}
 		w.WriteHeader(http.StatusOK)
-		out, _ := json.Marshal(resp)
-		w.Write(out)
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 	srv.Start()
 	return srv
@@ -163,10 +161,9 @@ func TestFederationCallback(t *testing.T) {
 			"access_token": "token",
 			"expires_in":   3600,
 		}
-		out, _ := json.Marshal(t)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(out)
+		_ = json.NewEncoder(w).Encode(t)
 	}))
 	defer tsrv.Close()
 	assert := assert.New(t)
