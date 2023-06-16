@@ -53,6 +53,12 @@ nfpms:
         dst: /usr/lib/systemd/system/ssh-inscribe.service
       - dst: /etc/ssh-inscribe
         type: dir
+      - src: etc/auth_users.yaml
+        dst: /etc/ssh-inscribe/auth_users.yaml
+        type: config|noreplace
+        file_info:
+          mode: 0600
+          owner: sshi
       - dst: /var/lib/ssh-inscribe
         type: dir
         file_info:
