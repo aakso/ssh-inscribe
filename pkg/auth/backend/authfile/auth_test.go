@@ -17,10 +17,10 @@ var testAuth auth.Authenticator
 
 func makeFile(data string, suffix string) string {
 	file, err := os.CreateTemp("", "test")
-	defer file.Close()
 	if err != nil {
 		panic(err)
 	}
+	defer file.Close()
 	tmpfiles = append(tmpfiles, file.Name())
 	_, err = file.WriteString(data)
 	if err != nil {
