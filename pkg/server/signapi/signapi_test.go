@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/ScaleFT/sshkeys"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"

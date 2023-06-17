@@ -3,7 +3,8 @@ package signapi
 import (
 	"strings"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/random"
@@ -43,12 +44,11 @@ func userPasswordForward(skipper middleware.Skipper) echo.MiddlewareFunc {
 
 func jwtAuth(key []byte, claims jwt.Claims, skipIfMissing bool) echo.MiddlewareFunc {
 	const authHeader = "X-Auth"
-	config := middleware.JWTConfig{
+	config := echojwt.Config{
 		SigningKey:  key,
 		TokenLookup: "header:" + authHeader,
-		Claims:      claims,
-		// ref: echo.labstack.com/middleware/jwt/
-		ParseTokenFunc: func(auth string, c echo.Context) (interface{}, error) {
+		// ref: https://echo.labstack.com/middleware/jwt/
+		ParseTokenFunc: func(c echo.Context, auth string) (interface{}, error) {
 			keyFunc := func(t *jwt.Token) (interface{}, error) {
 				if t.Method.Alg() != "HS256" {
 					return nil, errors.Errorf("unexpected jwt signing method=%v", t.Header["alg"])
@@ -58,7 +58,7 @@ func jwtAuth(key []byte, claims jwt.Claims, skipIfMissing bool) echo.MiddlewareF
 
 			auth = strings.TrimPrefix(auth, "Bearer ")
 			// claims are of type `jwt.MapClaims` when token is created with `jwt.Parse`
-			token, err := jwt.ParseWithClaims(auth, &SignClaim{}, keyFunc)
+			token, err := jwt.ParseWithClaims(auth, claims, keyFunc)
 			if err != nil {
 				return nil, err
 			}
@@ -76,7 +76,7 @@ func jwtAuth(key []byte, claims jwt.Claims, skipIfMissing bool) echo.MiddlewareF
 			return false
 		}
 	}
-	return middleware.JWTWithConfig(config)
+	return echojwt.WithConfig(config)
 }
 
 func auditID() echo.MiddlewareFunc {

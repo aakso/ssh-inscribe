@@ -44,12 +44,18 @@ github.com/gobwas/glob/util/strings
 # github.com/golang-jwt/jwt v3.2.2+incompatible
 ## explicit
 github.com/golang-jwt/jwt
+# github.com/golang-jwt/jwt/v5 v5.0.0
+## explicit; go 1.18
+github.com/golang-jwt/jwt/v5
 # github.com/golang/protobuf v1.5.3
 ## explicit; go 1.9
 github.com/golang/protobuf/proto
 # github.com/inconshreveable/mousetrap v1.1.0
 ## explicit; go 1.18
 github.com/inconshreveable/mousetrap
+# github.com/labstack/echo-jwt/v4 v4.2.0
+## explicit; go 1.17
+github.com/labstack/echo-jwt/v4
 # github.com/labstack/echo/v4 v4.10.2
 ## explicit; go 1.17
 github.com/labstack/echo/v4
