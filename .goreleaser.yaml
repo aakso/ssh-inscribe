@@ -13,6 +13,7 @@ builds:
     ignore:
       - goos: linux
         goarch: arm64
+
   - id: &build_id_sshi sshi
     env:
       - CGO_ENABLED=0
@@ -27,6 +28,7 @@ builds:
         goarch: arm64
       - goos: windows
         goarch: arm64
+
 archives:
   - format: binary
     name_template: >-
@@ -36,6 +38,7 @@ archives:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
+
 nfpms:
   - id: ssh-inscribe
     package_name: ssh-inscribe
@@ -67,7 +70,7 @@ nfpms:
       - src: etc/completion-loader.bash
         dst: /usr/share/bash-completion/completions/ssh-inscribe
       - src: LICENSE
-        dst: /usr/share/doc/ssh-inscribe/LICENSE
+        dst: /usr/share/doc/ssh-inscribe/copyright
         packager: deb
       - src: LICENSE
         dst: /usr/share/doc/ssh-inscribe/LICENSE
@@ -92,6 +95,7 @@ nfpms:
           - /usr/bin/ssh-agent
     rpm:
       group: &rpm_group Applications/Internet
+
   - id: sshi
     package_name: sshi
     file_name_template: "{{ .ConventionalFileName }}"
@@ -103,11 +107,12 @@ nfpms:
     license: *license
     section: *section
     formats: *formats
+    umask: 0o022
     contents:
       - src: etc/completion-loader.bash
         dst: /usr/share/bash-completion/completions/sshi
       - src: LICENSE
-        dst: /usr/share/doc/sshi/LICENSE
+        dst: /usr/share/doc/sshi/copyright
         packager: deb
       - src: LICENSE
         dst: /usr/share/doc/sshi/LICENSE
@@ -129,12 +134,15 @@ nfpms:
           - /usr/bin/ssh-agent
     rpm:
       group: *rpm_group
+
 checksum:
   name_template: checksums.txt
+
 release:
   footer: >-
     apt and dnf/yum package repositories are available at
     [Packagecloud](https://packagecloud.io/aakso/ssh-inscribe).
+
 changelog:
   use: github
   filters:
