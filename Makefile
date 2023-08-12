@@ -1,4 +1,4 @@
-GO_VERSION = 1.20.5
+GO_VERSION = 1.20.7
 GORELEASER_ARGS = --snapshot
 
 .PHONY: all
