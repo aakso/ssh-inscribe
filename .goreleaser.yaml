@@ -107,6 +107,7 @@ nfpms:
     license: *license
     section: *section
     formats: *formats
+    umask: 0o022
     contents:
       - src: etc/completion-loader.bash
         dst: /usr/share/bash-completion/completions/sshi
