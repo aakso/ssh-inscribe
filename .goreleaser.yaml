@@ -13,6 +13,7 @@ builds:
     ignore:
       - goos: linux
         goarch: arm64
+
   - id: &build_id_sshi sshi
     env:
       - CGO_ENABLED=0
@@ -27,6 +28,7 @@ builds:
         goarch: arm64
       - goos: windows
         goarch: arm64
+
 archives:
   - format: binary
     name_template: >-
@@ -36,6 +38,7 @@ archives:
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
       {{- if .Arm }}v{{ .Arm }}{{ end }}
+
 nfpms:
   - id: ssh-inscribe
     package_name: ssh-inscribe
@@ -92,6 +95,7 @@ nfpms:
           - /usr/bin/ssh-agent
     rpm:
       group: &rpm_group Applications/Internet
+
   - id: sshi
     package_name: sshi
     file_name_template: "{{ .ConventionalFileName }}"
@@ -129,12 +133,15 @@ nfpms:
           - /usr/bin/ssh-agent
     rpm:
       group: *rpm_group
+
 checksum:
   name_template: checksums.txt
+
 release:
   footer: >-
     apt and dnf/yum package repositories are available at
     [Packagecloud](https://packagecloud.io/aakso/ssh-inscribe).
+
 changelog:
   use: github
   filters:
