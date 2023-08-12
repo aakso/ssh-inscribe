@@ -70,7 +70,7 @@ nfpms:
       - src: etc/completion-loader.bash
         dst: /usr/share/bash-completion/completions/ssh-inscribe
       - src: LICENSE
-        dst: /usr/share/doc/ssh-inscribe/LICENSE
+        dst: /usr/share/doc/ssh-inscribe/copyright
         packager: deb
       - src: LICENSE
         dst: /usr/share/doc/ssh-inscribe/LICENSE
@@ -111,7 +111,7 @@ nfpms:
       - src: etc/completion-loader.bash
         dst: /usr/share/bash-completion/completions/sshi
       - src: LICENSE
-        dst: /usr/share/doc/sshi/LICENSE
+        dst: /usr/share/doc/sshi/copyright
         packager: deb
       - src: LICENSE
         dst: /usr/share/doc/sshi/LICENSE
