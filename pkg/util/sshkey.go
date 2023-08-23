@@ -9,7 +9,7 @@ func SignatureFormatFromSigningOptionAndCA(opt string, ca ssh.PublicKey) string 
 	case ca != nil && ca.Type() == ssh.KeyAlgoED25519:
 		return ssh.KeyAlgoED25519
 	case ca != nil && ca.Type() == ssh.KeyAlgoRSA && opt == "":
-		return ssh.KeyAlgoRSA
+		return ssh.KeyAlgoRSASHA256
 	default:
 		return opt
 	}
