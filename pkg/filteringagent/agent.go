@@ -82,7 +82,24 @@ func (a *filteringAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, e
 	if !found {
 		return nil, ErrNoSuchKey
 	}
-	return a.agent.Sign(key, data)
+	signCall := a.agent.Sign
+	extendedAgent, isExtendedAgent := a.agent.(agent.ExtendedAgent)
+	if a.keyType == ssh.KeyAlgoRSA && isExtendedAgent {
+		signCall = func(key ssh.PublicKey, data []byte) (*ssh.Signature, error) {
+			// Use the preferred signature algo, fall back to sha2-256
+			flags := agent.SignatureFlagRsaSha256
+			switch a.signatureFormat {
+			case ssh.KeyAlgoRSA:
+				flags = 0
+			case ssh.KeyAlgoRSASHA256:
+				flags = agent.SignatureFlagRsaSha256
+			case ssh.KeyAlgoRSASHA512:
+				flags = agent.SignatureFlagRsaSha512
+			}
+			return extendedAgent.SignWithFlags(key, data, flags)
+		}
+	}
+	return signCall(key, data)
 }
 
 func (a *filteringAgent) Add(key agent.AddedKey) error {
