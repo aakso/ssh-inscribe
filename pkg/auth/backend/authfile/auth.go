@@ -2,7 +2,7 @@ package authfile
 
 import (
 	"bytes"
-	"io/ioutil"
+	"os"
 
 	yaml "gopkg.in/yaml.v2"
 
@@ -21,7 +21,7 @@ type AuthFile struct {
 
 func (fa *AuthFile) Reload() error {
 	var tmp struct{ Users []UserEntry }
-	data, err := ioutil.ReadFile(fa.config.Path)
+	data, err := os.ReadFile(fa.config.Path)
 	if err != nil {
 		return errors.Wrap(err, "cannot parse users file")
 	}

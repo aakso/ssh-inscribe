@@ -48,7 +48,7 @@ jIKdUp1YKfQY+nTXVV8FSokRxLzuT3J9xZeC9wOiEFroTIb/XN/JZfr1RoGjOMTA
 D5sRPJP9cTEWfmrxeZAETGhWxQkQQU956NJdXnLVOCopi2J1rD/Y2waUvGoihSuX
 BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 -----END RSA PRIVATE KEY-----`)
-	testCaPublicInvalid     = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC4zuD51v17rZ+ZnNPNjSdfrHHg8rnhYts1wJqvMB/LKj817neJ5ONyulat19XmHUSJYC6X+Jw7imK54VmB4eLfJlpXIJjHX+uk18QxXOsDXvI6kK5aMM1huzc1BQequFD5WiN1KW20HHtzhW1XJayb5PUvp1+B6Bc/NeH/Anx3MjRQx/zMqCRczdLGB/hm/R5GTmGnR16sCb7IRfSg3silDe07a3KQE+PxbR9I8DezwQ5wM2tTZgq3fPjWzVcN+aTj4RjpU5BEEVGsMlZqlpsC9pYP89zi6xxq9zTeRO3aVt0uPvTQIPdS3fe97Y5rPx96RxeSLD4tPauz3CpOxze7 invalid`)
+	// testCaPublicInvalid     = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC4zuD51v17rZ+ZnNPNjSdfrHHg8rnhYts1wJqvMB/LKj817neJ5ONyulat19XmHUSJYC6X+Jw7imK54VmB4eLfJlpXIJjHX+uk18QxXOsDXvI6kK5aMM1huzc1BQequFD5WiN1KW20HHtzhW1XJayb5PUvp1+B6Bc/NeH/Anx3MjRQx/zMqCRczdLGB/hm/R5GTmGnR16sCb7IRfSg3silDe07a3KQE+PxbR9I8DezwQ5wM2tTZgq3fPjWzVcN+aTj4RjpU5BEEVGsMlZqlpsC9pYP89zi6xxq9zTeRO3aVt0uPvTQIPdS3fe97Y5rPx96RxeSLD4tPauz3CpOxze7 invalid`)
 	testCaPrivatePemInvalid = []byte(`-----BEGIN RSA PRIVATE KEY-----
 MIIEpQIBAAKCAQEAuM7g+db9e62fmZzTzY0nX6xx4PK54WLbNcCarzAfyyo/Ne53
 ieTjcrpWrdfV5h1EiWAul/icO4piueFZgeHi3yZaVyCYx1/rpNfEMVzrA17yOpCu
@@ -77,7 +77,6 @@ lg08jQ8z4TIRwkCmcmw6C/WnW2UShkGIU75umZadDtSsof06MtBEOgIXmgx7xKTb
 mU5fO7aSgagjS0fJXWqa2w8oYFTG1dGDg+H0tHvYyH7dTPtEfhM8FV8=
 -----END RSA PRIVATE KEY-----`)
 	testUserPublic       = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC32gyZOLC0RHDntCk+0T5pDNYYytfmP/Jzx+tpqNGEuCWnOV9PwBLdRPT2SNIzCq1GBQWYg63GZ4qWbuvSBvo904Y69q0RWugbcNjpclzkJGT0Bl50l/ppeuJ8wLVFnguCH92E2ja/8tiIPtetKGmFDdSTETIRshGUE6PnuPy2/1BL1ES55XfOGLcvzf/yDi+JeuwQqWi8YMxAIm8ug0yn4GPBPK/MNpnMG3AQmwmviQT6nC6Ky/B9VJk2418v++lAgKRXwyqUeaHd2jAj+5lQ72zc3mZjwFnwTZJWySaGtqxQea9l1wYOhZOEyV4+KOgfLoZ3ps+vmMLGSxmnGmAj user`)
-	testUserCertReq      *ssh.Certificate
 	testCaPrivate        interface{}
 	testCaPrivateInvalid interface{}
 	socketPath           string = path.Join(os.TempDir(), "keysignertest")
@@ -141,10 +140,7 @@ func testCert() *ssh.Certificate {
 func checkCert(cert *ssh.Certificate) error {
 	cc := &ssh.CertChecker{
 		IsUserAuthority: func(auth ssh.PublicKey) bool {
-			if bytes.Equal(auth.Marshal(), testCaPublicParsed.Marshal()) {
-				return true
-			}
-			return false
+			return bytes.Equal(auth.Marshal(), testCaPublicParsed.Marshal())
 		},
 	}
 	return cc.CheckCert("testprincipal", cert)
@@ -311,13 +307,15 @@ func TestGetPublicKey(t *testing.T) {
 	defer srv.KillAgent()
 	defer srv.Close()
 
-	key, err := srv.GetPublicKey()
+	_, err := srv.GetPublicKey()
 	assert.Error(t, err)
 	assert.True(t, wait(srv.AgentPing))
 	addKey(srv, testCaPrivate)
 	assert.True(t, wait(srv.Ready))
-	key, err = srv.GetPublicKey()
-	assert.NotNil(t, key)
+	key, err := srv.GetPublicKey()
+	if assert.NoError(t, err) {
+		assert.NotNil(t, key)
+	}
 }
 
 // This test assumes there is usable key on the smartcard

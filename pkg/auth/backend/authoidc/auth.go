@@ -126,7 +126,7 @@ func (ao *AuthOIDC) completeFlow(pctx *auth.AuthContext) (*auth.AuthContext, boo
 	log = log.WithField("audit_id", auditID).
 		WithField("state", state)
 	// Check whether this is a started authorization
-	if entry, ok := ao.getState(state); ok != false {
+	if entry, ok := ao.getState(state); ok {
 		if entry.claims != nil {
 			ao.fillAuthContext(pctx, entry.claims)
 			ao.deleteState(state)

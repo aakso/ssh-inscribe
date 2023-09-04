@@ -3,7 +3,7 @@ package server
 import (
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"runtime"
 	"time"
@@ -33,7 +33,7 @@ type Server struct {
 func (s *Server) Start() error {
 	var err error
 	log := Log.WithField("server_version", globals.Version())
-	s.web.Logger.SetOutput(ioutil.Discard)
+	s.web.Logger.SetOutput(io.Discard)
 
 	cc, err := s.config.GetCertificateMap()
 	if err != nil {
@@ -49,7 +49,7 @@ func (s *Server) Start() error {
 			tlsServer.TLSConfig.Certificates = make([]tls.Certificate, 1)
 			tlsServer.TLSConfig.Certificates[0] = cc.Certificates[0]
 		} else {
-			tlsServer.TLSConfig.NameToCertificate = cc.CertificateMap
+			tlsServer.TLSConfig.NameToCertificate = cc.CertificateMap //nolint:staticcheck // user config
 			tlsServer.TLSConfig.Certificates = cc.Certificates
 		}
 
@@ -202,7 +202,7 @@ func RecoverHandler(lf logrus.Fields) echo.MiddlewareFunc {
 					}
 					stack := make([]byte, 4<<10)
 					length := runtime.Stack(stack, false)
-					log.WithError(err).WithField("stack", fmt.Sprintf("%s", stack[:length])).Error("PANIC RECOVER")
+					log.WithError(err).WithField("stack", string(stack[:length])).Error("PANIC RECOVER")
 					c.Error(err)
 				}
 			}()

@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -265,7 +264,7 @@ func (c *Client) addCAKey() error {
 			return err
 		}
 	} else {
-		content, err = ioutil.ReadFile(c.Config.CAKeyFile)
+		content, err = os.ReadFile(c.Config.CAKeyFile)
 		if err != nil {
 			return errors.Wrap(err, "could not open ca key file")
 		}
@@ -318,7 +317,7 @@ func (c *Client) caChallenge() error {
 			return err
 		}
 	} else {
-		content, err = ioutil.ReadFile(c.Config.CAKeyFile)
+		content, err = os.ReadFile(c.Config.CAKeyFile)
 		if err != nil {
 			return errors.Wrap(err, "could not open ca key file")
 		}
@@ -826,7 +825,7 @@ outer:
 func (c *Client) discoverIdentityFile() error {
 	log := Log.WithField("action", "discoverIdentityFile")
 	log.Debug("reading identity file")
-	content, err := ioutil.ReadFile(c.Config.IdentityFile)
+	content, err := os.ReadFile(c.Config.IdentityFile)
 	if err != nil {
 		return errors.Wrap(err, "could not open identity file")
 	}
@@ -844,7 +843,7 @@ func (c *Client) discoverIdentityFile() error {
 	}
 	for _, certFile := range certFiles {
 		log := log.WithField("file", certFile)
-		content, err = ioutil.ReadFile(certFile)
+		content, err = os.ReadFile(certFile)
 		if os.IsNotExist(err) {
 			log.Debug("no certificate file found")
 			continue
@@ -1102,7 +1101,7 @@ func (c *Client) initREST() error {
 		SetHostURL(c.Config.URL).
 		SetTimeout(c.Config.Timeout).
 		SetRetryCount(int(c.Config.Retries)).
-		SetLogger(ioutil.Discard).
+		SetLogger(io.Discard).
 		SetRedirectPolicy(&ignoreRedirects{})
 
 	if parsed.Scheme == "https" {
@@ -1158,7 +1157,7 @@ func (c *Client) printCertificate(cert *ssh.Certificate) {
 	fmt.Printf("\n%20s: %s", "Valid from", validFrom)
 	fmt.Printf("\n%20s: %s", "Valid to", validTo)
 	if validTo.After(time.Now()) {
-		fmt.Printf(" (expires in %s)", validTo.Sub(time.Now()))
+		fmt.Printf(" (expires in %s)", time.Until(validTo))
 	}
 	fmt.Printf("\n%20s:", "Principals")
 	for _, p := range cert.ValidPrincipals {
@@ -1221,13 +1220,13 @@ func getCurrentUsername() string {
 func interactiveCredentialsPrompt(name, realm, credentialType, def string) ([]byte, error) {
 	var ret []byte
 	prompt := fmt.Sprintf("Enter %s for %q (%s): ",
-		strings.Title(credentialType),
+		strings.Title(credentialType), //nolint:staticcheck // not worth the x/text/cases and x/text/language deps
 		name,
 		realm,
 	)
 	if def != "" {
 		prompt = fmt.Sprintf("Enter %s for %q (%s) [default: %s]: ",
-			strings.Title(credentialType),
+			strings.Title(credentialType), //nolint:staticcheck // not worth the x/text/cases and x/text/language deps
 			name,
 			realm,
 			def,

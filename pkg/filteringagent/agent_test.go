@@ -87,15 +87,15 @@ func testDeps(t *testing.T) *certsAndKeys {
 	checkErr(err)
 	r.ca1Cert1KeyRsa, err = rsa.GenerateKey(rand.Reader, 2048)
 	checkErr(err)
-	r.ca1Cert1Rsa = makeCert(r.ca1, r.ca1Cert1KeyRsa, ssh.SigAlgoRSASHA2512)
+	r.ca1Cert1Rsa = makeCert(r.ca1, r.ca1Cert1KeyRsa, ssh.KeyAlgoRSASHA512)
 
 	_, r.ca1Cert2KeyEd25519, err = ed25519.GenerateKey(rand.Reader)
 	checkErr(err)
-	r.ca1Cert2Ed25519 = makeCert(r.ca1, r.ca1Cert2KeyEd25519, ssh.SigAlgoRSASHA2512)
+	r.ca1Cert2Ed25519 = makeCert(r.ca1, r.ca1Cert2KeyEd25519, ssh.KeyAlgoRSASHA512)
 
 	r.ca1Cert3RsaKeyLegacySigningAlgo, err = rsa.GenerateKey(rand.Reader, 2048)
 	checkErr(err)
-	r.ca1Cert3RsaLegacySigningAlgo = makeCert(r.ca1, r.ca1Cert3RsaKeyLegacySigningAlgo, ssh.SigAlgoRSA)
+	r.ca1Cert3RsaLegacySigningAlgo = makeCert(r.ca1, r.ca1Cert3RsaKeyLegacySigningAlgo, ssh.KeyAlgoRSA)
 
 	_, r.ca2, err = ed25519.GenerateKey(rand.Reader)
 	checkErr(err)
@@ -171,7 +171,7 @@ func Test_filteringAgent_List(t *testing.T) {
 		if !assert.NoError(t, err) {
 			return
 		}
-		fa := New(ta, ca1.PublicKey(), ssh.SigAlgoRSASHA2512, "")
+		fa := New(ta, ca1.PublicKey(), ssh.KeyAlgoRSASHA512, "")
 		agentKeys, err := fa.List()
 		if !assert.NoError(t, err) {
 			return
@@ -194,7 +194,7 @@ func Test_filteringAgent_List(t *testing.T) {
 		if !assert.NoError(t, err) {
 			return
 		}
-		fa := New(ta, ca1.PublicKey(), ssh.SigAlgoRSASHA2512, ssh.KeyAlgoED25519)
+		fa := New(ta, ca1.PublicKey(), ssh.KeyAlgoRSASHA512, ssh.KeyAlgoED25519)
 		agentKeys, err := fa.List()
 		if !assert.NoError(t, err) {
 			return
@@ -329,12 +329,12 @@ func Test_filteringAgent_Sign(t *testing.T) {
 
 	data := []byte("fake")
 	signature, err := fa.Sign(deps.ca1Cert1Rsa, data)
-	if !assert.NoError(t, err) {
-		return
+	if assert.NoError(t, err) {
+		signer, err := ssh.NewSignerFromKey(deps.ca1Cert1KeyRsa)
+		if assert.NoError(t, err) {
+			assert.NoError(t, signer.PublicKey().Verify(data, signature))
+		}
 	}
-
-	signer, err := ssh.NewSignerFromKey(deps.ca1Cert1KeyRsa)
-	assert.NoError(t, signer.PublicKey().Verify(data, signature))
 
 	t.Run("FilteredCert", func(t *testing.T) {
 		data := []byte("fake2")

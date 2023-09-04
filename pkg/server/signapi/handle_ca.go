@@ -3,7 +3,7 @@ package signapi
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -30,7 +30,7 @@ func (sa *SignApi) HandleAddKey(c echo.Context) error {
 	auditId, _ := actx.GetAuthMeta()[auth.MetaAuditID].(string)
 	log := Log.WithField("audit_id", auditId)
 
-	body, err := ioutil.ReadAll(c.Request().Body)
+	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		err = errors.Wrap(err, "cannot read private key")
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -72,7 +72,7 @@ func (sa *SignApi) HandleCaChallenge(c echo.Context) error {
 	if passphrase == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "no passphrase given")
 	}
-	body, err := ioutil.ReadAll(c.Request().Body)
+	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		err = errors.Wrap(err, "cannot read challenge")
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())

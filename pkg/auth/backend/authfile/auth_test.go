@@ -2,7 +2,6 @@ package authfile
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path"
 	"testing"
@@ -17,11 +16,11 @@ var tmpfiles []string
 var testAuth auth.Authenticator
 
 func makeFile(data string, suffix string) string {
-	file, err := ioutil.TempFile(os.TempDir(), "test")
-	defer file.Close()
+	file, err := os.CreateTemp("", "test")
 	if err != nil {
 		panic(err)
 	}
+	defer file.Close()
 	tmpfiles = append(tmpfiles, file.Name())
 	_, err = file.WriteString(data)
 	if err != nil {

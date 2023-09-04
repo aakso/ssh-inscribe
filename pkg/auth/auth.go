@@ -121,7 +121,7 @@ func (ac *AuthContext) GetAuthenticators() []string {
 	if ac.Parent != nil {
 		return filterEmptyValues(append([]string{ac.Authenticator}, ac.Parent.GetAuthenticators()...))
 	}
-	return filterEmptyValues(append([]string{ac.Authenticator}))
+	return filterEmptyValues([]string{ac.Authenticator})
 }
 
 func (ac *AuthContext) GetAuthMeta() map[string]interface{} {
@@ -141,7 +141,7 @@ func (ac *AuthContext) GetAuthorizers() []string {
 	if ac.Parent != nil {
 		return filterEmptyValues(append([]string{ac.Authorizer}, ac.Parent.GetAuthorizers()...))
 	}
-	return filterEmptyValues(append([]string{ac.Authorizer}))
+	return filterEmptyValues([]string{ac.Authorizer})
 }
 
 // Verify the whole auth context chain

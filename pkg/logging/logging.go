@@ -1,7 +1,7 @@
 package logging
 
 import (
-	"io/ioutil"
+	"io"
 	"strings"
 
 	"github.com/aakso/ssh-inscribe/pkg/config"
@@ -59,9 +59,9 @@ func Setup() error {
 	}
 
 	if !conf.EnableConsole {
-		logrus.SetOutput(ioutil.Discard)
+		logrus.SetOutput(io.Discard)
 		for _, logger := range pkgLoggers {
-			logger.Out = ioutil.Discard
+			logger.Out = io.Discard
 		}
 	}
 
@@ -98,7 +98,7 @@ func Setup() error {
 
 	if len(conf.PackageLevel) > 0 {
 		pkgs := []string{}
-		for k, _ := range pkgLoggers {
+		for k := range pkgLoggers {
 			pkgs = append(pkgs, k)
 		}
 		for setpkg, setlevel := range conf.PackageLevel {

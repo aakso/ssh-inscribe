@@ -70,10 +70,7 @@ func jwtAuth(key []byte, claims jwt.Claims, skipIfMissing bool) echo.MiddlewareF
 	}
 	if skipIfMissing {
 		config.Skipper = func(c echo.Context) bool {
-			if c.Request().Header.Get(authHeader) == "" {
-				return true
-			}
-			return false
+			return c.Request().Header.Get(authHeader) == ""
 		}
 	}
 	return echojwt.WithConfig(config)
