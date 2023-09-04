@@ -86,6 +86,7 @@ nfpms:
     scripts:
       preinstall: etc/server-pre-install.sh
       postinstall: etc/server-post-install.sh
+      preremove: etc/server-pre-remove.sh
     overrides:
       deb:
         dependencies:
