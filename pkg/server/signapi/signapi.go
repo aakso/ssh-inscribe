@@ -6,7 +6,7 @@ import (
 	"crypto/rsa"
 	"time"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/aakso/ssh-inscribe/pkg/auth"
 	"github.com/aakso/ssh-inscribe/pkg/keysigner"
@@ -67,16 +67,16 @@ func New(
 
 type SignClaim struct {
 	AuthContext *auth.AuthContext
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
 func (sa *SignApi) makeToken(actx *auth.AuthContext) *jwt.Token {
 	claims := SignClaim{
 		AuthContext: actx,
-		StandardClaims: jwt.StandardClaims{
-			Id:        util.RandB64(32), // Nonce
-			NotBefore: time.Now().Unix(),
-			ExpiresAt: time.Now().Add(time.Second * TokenLifeSecs).Unix(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        util.RandB64(32), // Nonce
+			NotBefore: jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Second * TokenLifeSecs)),
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

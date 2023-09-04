@@ -8,7 +8,7 @@ import (
 
 	"github.com/aakso/ssh-inscribe/pkg/auth/authz/authzfilter"
 
-	jwt "github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"

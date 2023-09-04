@@ -13,7 +13,7 @@ import (
 	"os"
 
 	"github.com/aakso/ssh-inscribe/pkg/auth"
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"gopkg.in/square/go-jose.v2"
 )
@@ -142,16 +142,16 @@ func TestFederationCallback(t *testing.T) {
 			EmailVerified bool     `json:"email_verified"`
 			Name          string   `json:"name"`
 			Groups        []string `json:"groups"`
-			jwt.StandardClaims
+			jwt.RegisteredClaims
 		}{
 			Email:         email,
 			EmailVerified: true,
 			Name:          userName,
 			Groups:        groups,
-			StandardClaims: jwt.StandardClaims{
+			RegisteredClaims: jwt.RegisteredClaims{
 				Issuer:    srvOIDC.URL,
-				Audience:  ab.config.ClientId,
-				ExpiresAt: time.Now().Add(time.Hour).Unix(),
+				Audience:  jwt.ClaimStrings([]string{ab.config.ClientId}),
+				ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 			},
 		}
 		ss, _ := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(privateKey)
