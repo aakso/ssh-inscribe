@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aakso/ssh-inscribe/pkg/auth/authz/authzfilter"
+	"github.com/aakso/ssh-inscribe/pkg/util"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
@@ -99,9 +100,11 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 	// Signing option
 	var algo string
 	switch c.QueryParam("signing_option") {
+	case "":
+		algo = util.DefaultRSAKeyAlgorithm
 	case "ssh-rsa":
 		algo = ssh.KeyAlgoRSA
-	case "rsa-sha2-256", "":
+	case "rsa-sha2-256":
 		algo = ssh.KeyAlgoRSASHA256
 	case "rsa-sha2-512":
 		algo = ssh.KeyAlgoRSASHA512
