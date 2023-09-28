@@ -280,4 +280,5 @@ func init() {
 		ClientConfig.MaxPrincipalsPerCertificate,
 		"Optional flag that instructs the server to put maximum of N principals per signed certificate.",
 	)
+	_ = RootCmd.RegisterFlagCompletionFunc("max-principals-per-certificate", cobra.NoFileCompletions)
 }
