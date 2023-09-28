@@ -40,7 +40,7 @@ func (sa *SignApi) HandleAddKey(c echo.Context) error {
 	if v, _ := strconv.ParseBool(c.QueryParam("init_challenge")); v {
 		_, err := ssh.ParseRawPrivateKey(body)
 		if _, ok := err.(*ssh.PassphraseMissingError); !ok {
-			return echo.NewHTTPError(http.StatusBadRequest, fmt.Errorf("encrypted private key expectec"))
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Errorf("encrypted private key expected"))
 		}
 		serialised, err := sa.encryptChallenge(body, auditId)
 		if err != nil {
