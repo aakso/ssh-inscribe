@@ -350,7 +350,7 @@ func New(config *Config) (*AuthOIDC, error) {
 
 func newRandomState() string {
 	state := util.RandB64(32)
-	state = strings.Replace(state, "+", "-", -1)
-	state = strings.Replace(state, "/", "-", -1)
+	state = strings.ReplaceAll(state, "+", "-")
+	state = strings.ReplaceAll(state, "/", "-")
 	return state
 }
