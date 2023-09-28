@@ -8,7 +8,7 @@ import (
 )
 
 func (sa *SignApi) HandleAuthDiscover(c echo.Context) error {
-	var r []objects.DiscoverResult
+	r := make([]objects.DiscoverResult, 0, len(sa.authList))
 	for _, v := range sa.authList {
 		r = append(r, objects.DiscoverResult{
 			AuthenticatorName:           v.Authenticator.Name(),

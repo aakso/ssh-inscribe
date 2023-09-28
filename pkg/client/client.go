@@ -545,7 +545,7 @@ func (c *Client) storeInFile() error {
 	}
 
 	multipleCerts := len(c.userCerts) > 1
-	var createdFileHandles []*os.File
+	createdFileHandles := make([]*os.File, 0, len(c.userCerts))
 	defer func() {
 		for _, fh := range createdFileHandles {
 			_ = fh.Close()

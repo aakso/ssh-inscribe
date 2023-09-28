@@ -39,7 +39,7 @@ func (a *filteringAgent) List() ([]*agent.Key, error) {
 	if err != nil {
 		return nil, err
 	}
-	var out []*agent.Key
+	out := make([]*agent.Key, 0, len(keys))
 	for _, rawKey := range keys {
 		key, err := ssh.ParsePublicKey(rawKey.Marshal())
 		if err != nil {
