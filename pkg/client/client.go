@@ -1100,7 +1100,7 @@ func (c *Client) initREST() error {
 		SetDisableWarn(true).
 		SetHostURL(c.Config.URL).
 		SetTimeout(c.Config.Timeout).
-		SetRetryCount(int(c.Config.Retries)).
+		SetRetryCount(c.Config.Retries).
 		SetLogger(io.Discard).
 		SetRedirectPolicy(&ignoreRedirects{})
 
@@ -1245,7 +1245,7 @@ func interactiveCredentialsPrompt(name, realm, credentialType, def string) ([]by
 		switch credentialType {
 		case CredentialTypePassword:
 			if ret, err = rl.ReadPassword(prompt); err == nil {
-				return []byte(ret), nil
+				return ret, nil
 			}
 			if err == readline.ErrInterrupt {
 				return nil, err
