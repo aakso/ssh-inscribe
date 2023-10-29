@@ -54,7 +54,7 @@ func (fa *AuthFile) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 
 	if n, _ := bcrypt.Cost([]byte(entry.Password)); n > 0 {
 		log.WithField("user", creds.UserIdentifier).Debug("brypt auth")
-		if err := bcrypt.CompareHashAndPassword([]byte(entry.Password), []byte(creds.Secret)); err != nil {
+		if err := bcrypt.CompareHashAndPassword([]byte(entry.Password), creds.Secret); err != nil {
 			log.WithField("user", creds.UserIdentifier).Debug("brypt auth fail")
 			return nil, false
 		}
