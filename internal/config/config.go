@@ -4,10 +4,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ghodss/yaml"
 	"github.com/mitchellh/copystructure"
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
+
+	"gopkg.in/yaml.v3"
 )
 
 var globalConfig map[string]interface{} = make(map[string]interface{})

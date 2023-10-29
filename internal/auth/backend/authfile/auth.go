@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"os"
 
-	yaml "gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 
 	"golang.org/x/crypto/bcrypt"
 
