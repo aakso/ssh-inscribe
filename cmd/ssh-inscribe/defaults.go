@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 
 	_ "github.com/aakso/ssh-inscribe/internal/auth/backend/all"
 	"github.com/aakso/ssh-inscribe/internal/config"
