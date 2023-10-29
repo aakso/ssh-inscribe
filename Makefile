@@ -20,5 +20,5 @@ dist:
 
 .PHONY: test
 test:
-	go test $(shell git grep  -l '!race' ./pkg | xargs -n 1 dirname | uniq | sed 's/^/\.\//')
-	go test -race ./pkg/...
+	go test $(shell git grep  -l '!race' ./internal | xargs -n 1 dirname | uniq | sed 's/^/\.\//')
+	go test -race ./internal/...
