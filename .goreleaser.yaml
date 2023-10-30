@@ -2,12 +2,12 @@ builds:
   - id: &build_id_ssh_inscribe ssh-inscribe
     env:
       - CGO_ENABLED=0
-    main: .
+    main: ./cmd/ssh-inscribe
     binary: ssh-inscribe
     ldflags:
-      - -X github.com/aakso/ssh-inscribe/pkg/globals.version={{ .Version }}
-      - -X github.com/aakso/ssh-inscribe/pkg/globals.confDir=/etc/ssh-inscribe
-      - -X github.com/aakso/ssh-inscribe/pkg/globals.varDir=/var/lib/ssh-inscribe
+      - -X github.com/aakso/ssh-inscribe/internal/globals.version={{ .Version }}
+      - -X github.com/aakso/ssh-inscribe/internal/globals.confDir=/etc/ssh-inscribe
+      - -X github.com/aakso/ssh-inscribe/internal/globals.varDir=/var/lib/ssh-inscribe
     goos: [darwin, linux]
     goarch: [amd64, arm64]
     ignore:
@@ -17,10 +17,10 @@ builds:
   - id: &build_id_sshi sshi
     env:
       - CGO_ENABLED=0
-    main: ./cliclient/sshi
+    main: ./cmd/sshi
     binary: sshi
     ldflags:
-      - -X github.com/aakso/ssh-inscribe/pkg/globals.version={{ .Version }}
+      - -X github.com/aakso/ssh-inscribe/internal/globals.version={{ .Version }}
     goos: [darwin, linux, windows]
     goarch: [amd64, arm64]
     ignore:
