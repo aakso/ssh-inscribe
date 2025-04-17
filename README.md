@@ -48,6 +48,9 @@ For client you need:
 Prebuilt binaries and packages are available at
 [project releases](https://github.com/aakso/ssh-inscribe/releases).
 
+Downloads can be [verified](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds#verifying-an-artifact-attestation-for-binaries)
+against GitHub artifact attestations.
+
 apt and dnf/yum package repositories are available at
 [Packagecloud](https://packagecloud.io/aakso/ssh-inscribe).
 
