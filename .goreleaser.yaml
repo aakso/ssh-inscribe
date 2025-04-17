@@ -1,3 +1,5 @@
+version: 2
+
 builds:
   - id: &build_id_ssh_inscribe ssh-inscribe
     env:
@@ -30,7 +32,7 @@ builds:
         goarch: arm64
 
 archives:
-  - format: binary
+  - formats: binary
     name_template: >-
       {{ .Binary }}-
       {{- .Os }}-
@@ -43,7 +45,7 @@ nfpms:
   - id: ssh-inscribe
     package_name: ssh-inscribe
     file_name_template: "{{ .ConventionalFileName }}"
-    builds: [*build_id_ssh_inscribe]
+    ids: [*build_id_ssh_inscribe]
     vendor: &vendor Anton Aksola
     homepage: &homepage https://github.com/aakso/ssh-inscribe
     maintainer: &maintainer Anton Aksola <aakso@iki.fi>
@@ -100,7 +102,7 @@ nfpms:
   - id: sshi
     package_name: sshi
     file_name_template: "{{ .ConventionalFileName }}"
-    builds: [*build_id_sshi]
+    ids: [*build_id_sshi]
     vendor: *vendor
     homepage: *homepage
     maintainer: *maintainer
