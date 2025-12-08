@@ -22,6 +22,7 @@ require (
 	github.com/spf13/cobra v1.7.0
 	github.com/stretchr/testify v1.8.4
 	github.com/vjeantet/ldapserver v1.0.1
+	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/crypto v0.14.0
 	golang.org/x/oauth2 v0.13.0
 	gopkg.in/ldap.v2 v2.5.1
