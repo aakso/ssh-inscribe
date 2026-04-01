@@ -13,16 +13,14 @@ import (
 	"github.com/aakso/ssh-inscribe/internal/logging"
 )
 
-var tmpfiles []string
 var testAuth auth.Authenticator
 
-func makeFile(data string, suffix string) string {
-	file, err := os.CreateTemp("", "test")
+func makeFile(tempDir string, data string, suffix string) string {
+	file, err := os.CreateTemp(tempDir, "test")
 	if err != nil {
 		panic(err)
 	}
 	defer file.Close()
-	tmpfiles = append(tmpfiles, file.Name())
 	_, err = file.WriteString(data)
 	if err != nil {
 		panic(err)
@@ -41,11 +39,7 @@ func makeFile(data string, suffix string) string {
 
 func TestMain(m *testing.M) {
 	logging.SetLevel(logrus.DebugLevel)
-	r := m.Run()
-	for _, file := range tmpfiles {
-		os.Remove(file)
-	}
-	os.Exit(r)
+	os.Exit(m.Run())
 }
 
 func TestAuthFileParse(t *testing.T) {
@@ -64,7 +58,7 @@ users:
   principals:
   - p1
 `
-	loc := makeFile(data, "yaml")
+	loc := makeFile(t.TempDir(), data, "yaml")
 	auth, err := New(&Config{
 		Path:  loc,
 		Realm: "test",
