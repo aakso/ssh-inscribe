@@ -494,6 +494,12 @@ func (c *Client) storeInFile() error {
 	log := Log.WithField("action", "storeInFile")
 	// If we have been requested to generate a keypair, save it
 	if c.Config.GenerateKeypair {
+		closeFile := func(f *os.File) {
+			if err := f.Close(); err != nil {
+				log.WithError(err).Warn("failed to close file")
+			}
+		}
+
 		privFile := c.Config.IdentityFile
 		if abs, _ := filepath.Abs(privFile); abs != "" {
 			privFile = abs
@@ -504,7 +510,7 @@ func (c *Client) storeInFile() error {
 		if err != nil {
 			return errors.Wrap(err, "could not save to file")
 		}
-		defer fhPriv.Close()
+		defer closeFile(fhPriv)
 		opts := &sshkeys.MarshalOptions{}
 		switch c.userPrivateKey.(type) {
 		case *ed25519.PrivateKey:
@@ -532,7 +538,7 @@ func (c *Client) storeInFile() error {
 		if err != nil {
 			return errors.Wrap(err, "could not save to file")
 		}
-		defer fhPub.Close()
+		defer closeFile(fhPub)
 		signer, err := ssh.NewSignerFromKey(c.userPrivateKey)
 		if err != nil {
 			return errors.Wrap(err, "unexpected error")
@@ -1192,7 +1198,9 @@ func (c *Client) urlFor(s string) string {
 
 func (c *Client) Close() {
 	if c.agentClient != nil {
-		c.agentConn.Close()
+		if err := c.agentConn.Close(); err != nil {
+			Log.WithError(err).Error("failed to close agent connection")
+		}
 	}
 }
 

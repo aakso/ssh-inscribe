@@ -361,7 +361,9 @@ func (ks *KeySignerService) KillAgent() bool {
 	}
 	// Ensure socket file is removed, for some reason the cleanup_exit is not called
 	// Need to look into that
-	os.Remove(ks.authSocketLoc)
+	if err := os.Remove(ks.authSocketLoc); err != nil && !errors.Is(err, os.ErrNotExist) {
+		ks.log.WithError(err).Warn("cannot remove auth socket")
+	}
 	ks.log.WithField("agentpid", ks.startedAgentProcess.Pid).Info("killed ssh-agent")
 
 	ks.startedAgentProcess = nil

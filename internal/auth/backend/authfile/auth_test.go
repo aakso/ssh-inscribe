@@ -20,7 +20,9 @@ func makeFile(tempDir string, data string, suffix string) string {
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 	_, err = file.WriteString(data)
 	if err != nil {
 		panic(err)
