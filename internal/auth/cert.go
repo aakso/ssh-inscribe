@@ -10,11 +10,11 @@ import (
 
 func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validBefore time.Time, maxPrincipalsPerCert int) []*ssh.Certificate {
 	var kid strings.Builder
-	kid.WriteString(fmt.Sprintf("subject=%q", actx.GetSubjectName()))
+	fmt.Fprintf(&kid, "subject=%q", actx.GetSubjectName())
 	if aid, ok := actx.GetAuthMeta()[MetaAuditID]; ok {
-		kid.WriteString(fmt.Sprintf(" audit_id=%q", aid))
+		fmt.Fprintf(&kid, " audit_id=%q", aid)
 	}
-	kid.WriteString(fmt.Sprintf(" via=%q", strings.Join(actx.GetAuthenticators(), ",")))
+	fmt.Fprintf(&kid, " via=%q", strings.Join(actx.GetAuthenticators(), ","))
 
 	remainingPrincipals := actx.GetPrincipals()
 	if maxPrincipalsPerCert == 0 {
