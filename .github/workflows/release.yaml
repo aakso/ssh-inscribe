@@ -28,6 +28,15 @@ jobs:
         uses: actions/attest@v4
         with:
           subject-checksums: dist/checksums.txt
+        id: attest
+      - name: Upload Sigstore bundle
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cp "${ATTEST_BUNDLE_PATH}" artifact-attestation.sigstore.json
+          gh release upload "$(jq -r .tag <dist/metadata.json)" artifact-attestation.sigstore.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ATTEST_BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
       - name: Upload to Packagecloud
         if: startsWith(github.ref, 'refs/tags/')
         run: |
