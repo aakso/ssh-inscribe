@@ -9,7 +9,6 @@ require (
 	github.com/blang/semver/v4 v4.0.0
 	github.com/chzyer/readline v1.5.1
 	github.com/coreos/go-oidc v2.2.1+incompatible
-	github.com/ghodss/yaml v1.0.0
 	github.com/gobwas/glob v0.2.3
 	github.com/golang-jwt/jwt/v5 v5.0.0
 	github.com/labstack/echo-jwt/v4 v4.2.0
@@ -23,12 +22,13 @@ require (
 	github.com/spf13/cobra v1.7.0
 	github.com/stretchr/testify v1.8.4
 	github.com/vjeantet/ldapserver v1.0.1
+	go.yaml.in/yaml/v3 v3.0.4
 	golang.org/x/crypto v0.14.0
 	golang.org/x/oauth2 v0.13.0
 	gopkg.in/ldap.v2 v2.5.1
 	gopkg.in/resty.v1 v1.12.0
 	gopkg.in/square/go-jose.v2 v2.6.0
-	gopkg.in/yaml.v2 v2.4.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -55,5 +55,4 @@ require (
 	google.golang.org/appengine v1.6.8 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/asn1-ber.v1 v1.0.0-20181015200546-f715ec2f112d // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
