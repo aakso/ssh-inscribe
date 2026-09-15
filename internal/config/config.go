@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/ghodss/yaml"
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/mitchellh/copystructure"
-	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 )
 
