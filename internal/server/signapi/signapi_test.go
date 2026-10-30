@@ -18,6 +18,7 @@ import (
 	"github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
@@ -643,4 +644,44 @@ func TestSignWarnsAboutUnsafePrincipals(t *testing.T) {
 		}
 		assert.True(t, warned, "expected a warning about the comma principal")
 	})
+}
+
+func TestJWTOnlyHS256IsAccepted(t *testing.T) {
+	key := []byte("testkey")
+	e := echo.New()
+	e.POST("/claims", func(c echo.Context) error { return c.NoContent(http.StatusOK) }, jwtAuth(key, false))
+
+	claims := SignClaim{
+		AuthContext: &auth.AuthContext{Status: auth.StatusCompleted},
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Minute)),
+		},
+	}
+	expired := claims
+	expired.ExpiresAt = jwt.NewNumericDate(time.Now().Add(-time.Minute))
+	noExpiry := claims
+	noExpiry.ExpiresAt = nil
+
+	sign := func(method jwt.SigningMethod, c SignClaim, k any) string {
+		ss, err := jwt.NewWithClaims(method, c).SignedString(k)
+		require.NoError(t, err)
+		return ss
+	}
+	for name, tc := range map[string]struct {
+		token string
+		code  int
+	}{
+		"hs256":     {sign(jwt.SigningMethodHS256, claims, key), http.StatusOK},
+		"hs512":     {sign(jwt.SigningMethodHS512, claims, key), http.StatusUnauthorized},
+		"none":      {sign(jwt.SigningMethodNone, claims, jwt.UnsafeAllowNoneSignatureType), http.StatusUnauthorized},
+		"wrong key": {sign(jwt.SigningMethodHS256, claims, []byte("other")), http.StatusUnauthorized},
+		"expired":   {sign(jwt.SigningMethodHS256, expired, key), http.StatusUnauthorized},
+		"no expiry": {sign(jwt.SigningMethodHS256, noExpiry, key), http.StatusUnauthorized},
+	} {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/claims", nil)
+		req.Header.Set("X-Auth", "Bearer "+tc.token)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, tc.code, rec.Code, name)
+	}
 }
