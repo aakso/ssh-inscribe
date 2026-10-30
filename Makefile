@@ -23,6 +23,13 @@ test:
 	go test $(NORACE_PKGS)
 	go test -race ./...
 
+# Integration tests against OpenLDAP 2.4.57 and 389 Directory Server in
+# containers; needs docker
+.PHONY: test-ldap
+test-ldap:
+	test/ldap/run-openldap.sh
+	test/ldap/run-389ds.sh
+
 .PHONY: vet
 vet:
 	go vet ./...

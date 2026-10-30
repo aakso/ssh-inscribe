@@ -1,0 +1,8 @@
+# Let authenticated users read the directory (users and groups), a common
+# production setup. The image default only allows reading one's own entry.
+dn: olcDatabase={1}mdb,cn=config
+changetype: modify
+replace: olcAccess
+olcAccess: to * by dn.exact=gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth manage by * break
+olcAccess: to attrs=userPassword,shadowLastChange by self write by dn="cn=admin,dc=example,dc=com" write by anonymous auth by * none
+olcAccess: to * by self read by dn="cn=admin,dc=example,dc=com" write by users read by * none

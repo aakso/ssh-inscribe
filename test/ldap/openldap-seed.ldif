@@ -1,0 +1,48 @@
+# Test data for the OpenLDAP integration test (see run-openldap.sh).
+# Passwords are all "secret".
+
+dn: ou=people,dc=example,dc=com
+objectClass: organizationalUnit
+ou: people
+
+dn: ou=groups,dc=example,dc=com
+objectClass: organizationalUnit
+ou: groups
+
+dn: uid=alice,ou=people,dc=example,dc=com
+objectClass: inetOrgPerson
+uid: alice
+cn: Alice Smith
+sn: Smith
+displayName: Alice Smith
+userPassword: secret
+
+# A DN with characters that are special in search filters
+dn: ou=Contractors (EMEA),ou=people,dc=example,dc=com
+objectClass: organizationalUnit
+ou: Contractors (EMEA)
+
+dn: uid=carol,ou=Contractors (EMEA),ou=people,dc=example,dc=com
+objectClass: inetOrgPerson
+uid: carol
+cn: Carol Jones
+sn: Jones
+displayName: Carol Jones
+userPassword: secret
+
+dn: cn=devs,ou=groups,dc=example,dc=com
+objectClass: groupOfNames
+cn: devs
+member: uid=alice,ou=people,dc=example,dc=com
+member: uid=carol,ou=Contractors (EMEA),ou=people,dc=example,dc=com
+
+dn: cn=admins,ou=groups,dc=example,dc=com
+objectClass: groupOfNames
+cn: admins
+member: uid=alice,ou=people,dc=example,dc=com
+
+# A group name sshd would split into two principals
+dn: cn=Sales\2C EMEA,ou=groups,dc=example,dc=com
+objectClass: groupOfNames
+cn: Sales, EMEA
+member: uid=carol,ou=Contractors (EMEA),ou=people,dc=example,dc=com

@@ -86,7 +86,14 @@ make check     # fmt-check, vet, lint (linux + windows), test, govulncheck
 make test      # needs ssh-agent in PATH (tests start real agents)
 make lint      # golangci-lint, pinned version
 make fmt       # gofmt + gci import grouping
+make test-ldap # authldap against OpenLDAP 2.4.57 and 389 DS (docker)
 ```
+
+Known deployments use OpenLDAP 2.4, 389 Directory Server and Microsoft AD.
+LDAP changes must pass `make test-ldap` and must not change behaviour for
+existing directory configurations (AD cannot be tested in CI; keep
+AD-specific behaviour such as the matching rule in groupSearchFilter working
+by construction).
 
 - Go version: see `go.mod` (`go` and `toolchain` lines). No vendoring.
 - Lint has no exclusions. A `//nolint` must name the linter and give a
