@@ -1,8 +1,12 @@
 #!/bin/sh
 set -eu
 
-test -f /etc/ssh-inscribe/server_config.yaml ||
-    ssh-inscribe defaults >/etc/ssh-inscribe/server_config.yaml
+# The configuration may hold secrets (tokenSigningKey, pkcs11Pin, OIDC
+# clientSecret); never create it world-readable.
+if ! test -f /etc/ssh-inscribe/server_config.yaml; then
+    (umask 027 && ssh-inscribe defaults >/etc/ssh-inscribe/server_config.yaml)
+    chgrp sshi /etc/ssh-inscribe/server_config.yaml
+fi
 
 if [ -d /run/systemd/system ]; then
     systemctl --system daemon-reload || :

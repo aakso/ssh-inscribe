@@ -67,7 +67,7 @@ nfpms:
       - dst: /var/lib/ssh-inscribe
         type: dir
         file_info:
-          mode: 0775
+          mode: 0770
           group: sshi
       - src: etc/completion-loader.bash
         dst: /usr/share/bash-completion/completions/ssh-inscribe
