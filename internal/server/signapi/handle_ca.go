@@ -2,6 +2,7 @@ package signapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
@@ -35,7 +35,7 @@ func (sa *SignApi) HandleAddKey(c echo.Context) error {
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		err = errors.Wrap(err, "cannot read private key")
+		err = fmt.Errorf("cannot read private key: %w", err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
@@ -80,7 +80,7 @@ func (sa *SignApi) HandleCaChallenge(c echo.Context) error {
 	}
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		err = errors.Wrap(err, "cannot read challenge")
+		err = fmt.Errorf("cannot read challenge: %w", err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	challenge, err := sa.decryptChallenge(body)
@@ -120,20 +120,20 @@ func (sa *SignApi) encryptChallenge(key []byte, auditId string) ([]byte, error) 
 	}
 	plaintext, err := json.Marshal(&obj)
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot encode challenge")
+		return nil, fmt.Errorf("cannot encode challenge: %w", err)
 	}
 	encryptor, err := jose.NewEncrypter(challengeContentEncryption,
 		jose.Recipient{Algorithm: challengeKeyAlgorithm, Key: sa.caChallengeKey.Public()}, nil)
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot init challenge encryptor")
+		return nil, fmt.Errorf("cannot init challenge encryptor: %w", err)
 	}
 	ciphertext, err := encryptor.Encrypt(plaintext)
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot encrypt challenge")
+		return nil, fmt.Errorf("cannot encrypt challenge: %w", err)
 	}
 	serialised, err := ciphertext.CompactSerialize()
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot encrypt challenge")
+		return nil, fmt.Errorf("cannot encrypt challenge: %w", err)
 	}
 	return []byte(serialised), nil
 }
@@ -145,14 +145,14 @@ func (sa *SignApi) decryptChallenge(challenge []byte) (*encryptedChallenge, erro
 		[]jose.ContentEncryption{challengeContentEncryption},
 	)
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot decode challenge")
+		return nil, fmt.Errorf("cannot decode challenge: %w", err)
 	}
 	plaintext, err := parsedCiphertext.Decrypt(sa.caChallengeKey)
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot decrypt challenge")
+		return nil, fmt.Errorf("cannot decrypt challenge: %w", err)
 	}
 	if err := json.Unmarshal(plaintext, &obj); err != nil {
-		return nil, errors.Wrap(err, "cannot parse challenge")
+		return nil, fmt.Errorf("cannot parse challenge: %w", err)
 	}
 	return &obj, nil
 }

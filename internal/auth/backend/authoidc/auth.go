@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/subtle"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 
@@ -223,7 +223,7 @@ func (ao *AuthOIDC) FederationCallback(data interface{}) error {
 	if idpErr := resp.Get("error"); idpErr != "" {
 		log.WithField("error", idpErr).WithField("error_description", resp.Get("error_description")).
 			Info("identity provider returned an error")
-		return errors.Errorf("identity provider returned an error: %s", idpErr)
+		return fmt.Errorf("identity provider returned an error: %s", idpErr)
 	}
 	code := resp.Get(codeKey)
 	if code == "" {
@@ -246,13 +246,13 @@ func (ao *AuthOIDC) FederationCallback(data interface{}) error {
 	token, err := ao.oauthConfig.Exchange(tctx, code, oauth2.VerifierOption(entry.verifier))
 	if err != nil {
 		log.WithError(err).Error("cannot exchange auth code")
-		return errors.Wrap(err, "cannot exchange auth code")
+		return fmt.Errorf("cannot exchange auth code: %w", err)
 	}
 	log.Debug("validating token")
 	claims, err := ao.validateToken(token, entry.nonce)
 	if err != nil {
 		log.WithError(err).Error("token validation failed")
-		return errors.Wrap(err, "cannot validate token")
+		return fmt.Errorf("cannot validate token: %w", err)
 	}
 	if err := ao.setClaims(state, claims); err != nil {
 		return err
@@ -311,7 +311,7 @@ func (ao *AuthOIDC) checkEmailVerified(claims map[string]interface{}) error {
 		return nil
 	}
 	if verified, _ := claims[emailVerifiedClaim].(bool); !verified {
-		return errors.Errorf("%s claim is used but %s is not true", emailClaim, emailVerifiedClaim)
+		return fmt.Errorf("%s claim is used but %s is not true", emailClaim, emailVerifiedClaim)
 	}
 	return nil
 }
@@ -321,20 +321,20 @@ func (ao *AuthOIDC) validateToken(token *oauth2.Token, nonce string) (map[string
 	log := ao.log.WithField("action", "validateToken")
 	jwtToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		return nil, errors.Errorf("%s: no id_token found", ao.Name())
+		return nil, fmt.Errorf("%s: no id_token found", ao.Name())
 	}
 	tctx, cancel := context.WithTimeout(context.Background(), time.Duration(ao.config.Timeout)*time.Second)
 	defer cancel()
 	IDToken, err := ao.verifier.Verify(tctx, jwtToken)
 	if err != nil {
-		return nil, errors.Wrap(err, "verify error")
+		return nil, fmt.Errorf("verify error: %w", err)
 	}
 	if subtle.ConstantTimeCompare([]byte(IDToken.Nonce), []byte(nonce)) != 1 {
 		return nil, errors.New("verify error: nonce mismatch")
 	}
 	claims := map[string]interface{}{}
 	if err = IDToken.Claims(&claims); err != nil {
-		return nil, errors.Wrap(err, "claims unmarshal error")
+		return nil, fmt.Errorf("claims unmarshal error: %w", err)
 	}
 	log.WithField("claims", claims).Debug("got claims")
 
@@ -376,7 +376,7 @@ func New(config *Config) (*AuthOIDC, error) {
 		config.ClientSecret == "" ||
 		config.ProviderURL == "" {
 
-		return nil, errors.Errorf("%s: required config items: clientId, clientSecret, authURL, tokenURL", config.Name)
+		return nil, fmt.Errorf("%s: required config items: clientId, clientSecret, authURL, tokenURL", config.Name)
 	}
 	log := Log.WithFields(logrus.Fields{
 		"realm": config.Realm,
@@ -388,7 +388,7 @@ func New(config *Config) (*AuthOIDC, error) {
 	parseTpl := func(name, tpl string) {
 		_, err := rootTpl.New(name).Parse(tpl)
 		if err != nil {
-			tplError = errors.Wrapf(err, "cannot parse %s", name)
+			tplError = fmt.Errorf("cannot parse %s: %w", name, err)
 		}
 	}
 	parseTpl(subjectName, config.ValueMappings.SubjectNameTemplate)
@@ -399,7 +399,7 @@ func New(config *Config) (*AuthOIDC, error) {
 
 	provider, err := oidc.NewProvider(context.Background(), config.ProviderURL)
 	if err != nil {
-		return nil, errors.Wrapf(err, "%s: cannot instantiate auth provider", config.Name)
+		return nil, fmt.Errorf("%s: cannot instantiate auth provider: %w", config.Name, err)
 	}
 	log.WithFields(logrus.Fields{
 		"auth_url":  provider.Endpoint().AuthURL,

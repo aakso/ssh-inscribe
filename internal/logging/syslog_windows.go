@@ -1,7 +1,8 @@
 package logging
 
 import (
-	"github.com/pkg/errors"
+	"errors"
+
 	"github.com/sirupsen/logrus"
 )
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,7 +11,6 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh/agent"
 
@@ -98,7 +98,7 @@ func runExecCommand(args []string) error {
 		c.Close()
 		conn, err := util.DialAuthSock(authSockName)
 		if err != nil {
-			return errors.Wrap(err, "could not connect to ssh-agent")
+			return fmt.Errorf("could not connect to ssh-agent: %w", err)
 		}
 		targetAgent := agent.NewClient(conn)
 		startAdhocAgent(ln, filteringagent.New(
@@ -153,7 +153,7 @@ func runCommand(args []string) error {
 
 	bin, err := exec.LookPath(args[0])
 	if err != nil {
-		return errors.Errorf("%s binary not found", args[0])
+		return fmt.Errorf("%s binary not found", args[0])
 	}
 	proc := exec.Command(bin, args[1:]...)
 	proc.Stdin = os.Stdin

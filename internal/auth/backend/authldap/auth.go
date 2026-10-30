@@ -3,14 +3,14 @@ package authldap
 import (
 	"bytes"
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"text/template"
 	"time"
 
 	"github.com/go-ldap/ldap/v3"
-
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
@@ -243,7 +243,7 @@ func New(conf *Config) (*AuthLDAP, error) {
 	parseTpl := func(name, tpl string) {
 		_, err := rootTpl.New(name).Parse(tpl)
 		if err != nil {
-			tplError = errors.Wrapf(err, "cannot parse %s", name)
+			tplError = fmt.Errorf("cannot parse %s: %w", name, err)
 		}
 	}
 	parseTpl(UserBindDN, conf.UserBindDN)
@@ -257,7 +257,7 @@ func New(conf *Config) (*AuthLDAP, error) {
 
 	url, err := url.Parse(conf.ServerURL)
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot parse ServerURL")
+		return nil, fmt.Errorf("cannot parse ServerURL: %w", err)
 	}
 	connectMode := ConnectModePlain
 	switch url.Scheme {
@@ -268,7 +268,7 @@ func New(conf *Config) (*AuthLDAP, error) {
 	case "ldaps":
 		connectMode = ConnectModeLDAPS
 	default:
-		return nil, errors.Errorf("unsupported scheme: %s", url.Scheme)
+		return nil, fmt.Errorf("unsupported scheme: %s", url.Scheme)
 	}
 	if url.Port() == "" {
 		return nil, errors.New("missing port for the ServerURL")

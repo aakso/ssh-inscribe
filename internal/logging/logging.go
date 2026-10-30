@@ -1,10 +1,11 @@
 package logging
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	"github.com/aakso/ssh-inscribe/internal/config"
@@ -51,7 +52,7 @@ func Setup() error {
 	)
 	tmp, err := config.Get("logging")
 	if err != nil {
-		return errors.Wrap(err, "cannot initialize logging")
+		return fmt.Errorf("cannot initialize logging: %w", err)
 	}
 	conf, _ := tmp.(*Config)
 	if conf == nil {
@@ -69,7 +70,7 @@ func Setup() error {
 	if conf.EnableSyslog {
 		hook, err := getSyslogLoggerHook(conf.SyslogURL)
 		if err != nil {
-			return errors.Wrap(err, "cannot create syslog hook")
+			return fmt.Errorf("cannot create syslog hook: %w", err)
 		}
 		logrus.AddHook(hook)
 		for _, logger := range pkgLoggers {
@@ -79,7 +80,7 @@ func Setup() error {
 
 	level, err = logrus.ParseLevel(strings.ToLower(conf.DefaultLevel))
 	if err != nil {
-		return errors.Errorf("unknown log level: %q, available: %s",
+		return fmt.Errorf("unknown log level: %q, available: %s",
 			conf.DefaultLevel, strings.Join(GetAvailableLevelNames(), ", "))
 	}
 
@@ -89,7 +90,7 @@ func Setup() error {
 	case "json":
 		formatter = new(logrus.JSONFormatter)
 	default:
-		return errors.Errorf("unknown log formatter: %q, available: text, json", conf.Format)
+		return fmt.Errorf("unknown log formatter: %q, available: text, json", conf.Format)
 	}
 
 	for _, v := range pkgLoggers {
@@ -105,11 +106,11 @@ func Setup() error {
 		for setpkg, setlevel := range conf.PackageLevel {
 			logger, found := pkgLoggers[setpkg]
 			if !found {
-				return errors.Errorf("unknown package, available: %s", strings.Join(pkgs, ", "))
+				return fmt.Errorf("unknown package, available: %s", strings.Join(pkgs, ", "))
 			}
 			level, err := logrus.ParseLevel(strings.ToLower(setlevel))
 			if err != nil {
-				return errors.Errorf("unknown log level: %q, available: panic, fatal, error, warn, info, debug", setlevel)
+				return fmt.Errorf("unknown log level: %q, available: panic, fatal, error, warn, info, debug", setlevel)
 			}
 			logger.Level = level
 		}

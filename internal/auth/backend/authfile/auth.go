@@ -2,14 +2,12 @@ package authfile
 
 import (
 	"crypto/subtle"
+	"fmt"
 	"os"
 
-	yaml "gopkg.in/yaml.v2"
-
-	"golang.org/x/crypto/bcrypt"
-
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
+	yaml "gopkg.in/yaml.v2"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
 )
@@ -24,11 +22,11 @@ func (fa *AuthFile) Reload() error {
 	var tmp struct{ Users []UserEntry }
 	data, err := os.ReadFile(fa.config.Path)
 	if err != nil {
-		return errors.Wrap(err, "cannot parse users file")
+		return fmt.Errorf("cannot parse users file: %w", err)
 	}
 	err = yaml.Unmarshal(data, &tmp)
 	if err != nil {
-		return errors.Wrap(err, "cannot parse users file")
+		return fmt.Errorf("cannot parse users file: %w", err)
 	}
 	for _, e := range tmp.Users {
 		if e.Password == "" {

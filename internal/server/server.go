@@ -2,21 +2,20 @@ package server
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"runtime"
 	"time"
 
-	"github.com/aakso/ssh-inscribe/internal/globals"
-
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	authbackend "github.com/aakso/ssh-inscribe/internal/auth/backend"
 	"github.com/aakso/ssh-inscribe/internal/config"
+	"github.com/aakso/ssh-inscribe/internal/globals"
 	"github.com/aakso/ssh-inscribe/internal/keysigner"
 	"github.com/aakso/ssh-inscribe/internal/server/signapi"
 	"github.com/aakso/ssh-inscribe/internal/util"
@@ -39,7 +38,7 @@ func (s *Server) Start() error {
 
 	cc, err := s.config.GetCertificateMap()
 	if err != nil {
-		return errors.Wrap(err, "invalid certificate configuration")
+		return fmt.Errorf("invalid certificate configuration: %w", err)
 	}
 
 	for _, srv := range []*http.Server{s.web.Server, s.web.TLSServer} {
@@ -71,14 +70,14 @@ func (s *Server) Start() error {
 
 		err = s.web.StartServer(tlsServer)
 		if err != nil {
-			return errors.Wrap(err, "cannot start server")
+			return fmt.Errorf("cannot start server: %w", err)
 		}
 	} else {
 		log.WithField("listen", fmt.Sprintf("http://%s", s.config.Listen)).Warn("server starting without TLS")
 		err = s.web.Start(s.config.Listen)
 	}
 	if err != nil {
-		return errors.Wrap(err, "cannot start server")
+		return fmt.Errorf("cannot start server: %w", err)
 	}
 	return nil
 }
@@ -97,7 +96,7 @@ func Build() (*Server, error) {
 	// Configuration
 	tmp, err := config.Get("server")
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot initialize server")
+		return nil, fmt.Errorf("cannot initialize server: %w", err)
 	}
 	conf, _ := tmp.(*Config)
 	if conf == nil {
@@ -105,15 +104,15 @@ func Build() (*Server, error) {
 	}
 	maxlife, err := time.ParseDuration(conf.MaxCertLifetime)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid MaxCertLifeTime")
+		return nil, fmt.Errorf("invalid MaxCertLifeTime: %w", err)
 	}
 	defaultlife, err := time.ParseDuration(conf.DefaultCertLifetime)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid DefaultCertLifetime")
+		return nil, fmt.Errorf("invalid DefaultCertLifetime: %w", err)
 	}
 	caChallengeLife, err := time.ParseDuration(conf.CaChallengeLifetime)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid CaChallengeLifetime")
+		return nil, fmt.Errorf("invalid CaChallengeLifetime: %w", err)
 	}
 
 	// Auth backends
@@ -121,7 +120,7 @@ func Build() (*Server, error) {
 	for _, ab := range conf.AuthBackends {
 		instance, err := authbackend.GetBackend(ab.Type, ab.Config)
 		if err != nil {
-			return nil, errors.Wrap(err, "cannot initialize server")
+			return nil, fmt.Errorf("cannot initialize server: %w", err)
 		}
 		authList = append(authList, signapi.AuthenticatorListEntry{
 			Authenticator: instance,
@@ -141,10 +140,10 @@ func Build() (*Server, error) {
 	if conf.PKCS11Provider != "" && conf.PKCS11Pin != "" {
 		// Try to readd (NitroKey issue)
 		if err = signer.RemoveSmartcard(conf.PKCS11Provider); err != nil {
-			return nil, errors.Wrap(err, "pkcs11 initialize error")
+			return nil, fmt.Errorf("pkcs11 initialize error: %w", err)
 		}
 		if err := signer.AddSmartcard(conf.PKCS11Provider, conf.PKCS11Pin); err != nil {
-			return nil, errors.Wrap(err, "pkcs11 initialize error")
+			return nil, fmt.Errorf("pkcs11 initialize error: %w", err)
 		}
 	}
 

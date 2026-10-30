@@ -7,7 +7,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
-	"github.com/pkg/errors"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
 )
@@ -61,7 +60,7 @@ func (sa *SignApi) HandleLogin(c echo.Context) error {
 	token := sa.makeToken(actx)
 	signed, err := token.SignedString(sa.tkey)
 	if err != nil {
-		return errors.Wrap(err, "cannot sign token")
+		return fmt.Errorf("cannot sign token: %w", err)
 	}
 
 	if actx.Status == auth.StatusPending {

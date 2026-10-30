@@ -2,11 +2,10 @@ package server
 
 import (
 	"crypto/tls"
+	"errors"
 	"path"
 
 	"github.com/aakso/ssh-inscribe/internal/globals"
-
-	"github.com/pkg/errors"
 )
 
 type CertificateConfig struct {
@@ -46,7 +45,7 @@ var Defaults *Config = &Config{
 	TLSCertFiles: []string{},
 	TLSKeyFiles:  []string{},
 	AuthBackends: []AuthBackend{
-		AuthBackend{
+		{
 			Type:    "authfile",
 			Config:  "authfile",
 			Default: false,

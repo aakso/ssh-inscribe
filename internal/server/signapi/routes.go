@@ -1,14 +1,15 @@
 package signapi
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/labstack/echo-jwt/v4"
+	echojwt "github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/labstack/gommon/random"
-	"github.com/pkg/errors"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
 )
@@ -51,7 +52,7 @@ func jwtAuth(key []byte, skipIfMissing bool) echo.MiddlewareFunc {
 		ParseTokenFunc: func(c echo.Context, auth string) (interface{}, error) {
 			keyFunc := func(t *jwt.Token) (interface{}, error) {
 				if t.Method.Alg() != "HS256" {
-					return nil, errors.Errorf("unexpected jwt signing method=%v", t.Header["alg"])
+					return nil, fmt.Errorf("unexpected jwt signing method=%v", t.Header["alg"])
 				}
 				return key, nil
 			}

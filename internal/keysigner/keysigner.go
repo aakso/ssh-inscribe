@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -270,13 +270,13 @@ func (ks *KeySignerService) AddSigningKey(encodedKey []byte, passphrase []byte, 
 		key, err = ssh.ParseRawPrivateKey(encodedKey)
 	}
 	if err != nil {
-		return errors.Wrap(err, "cannot add signing key")
+		return fmt.Errorf("cannot add signing key: %w", err)
 	}
 	// check that fingerprint matches if it is set
 	if ks.preferredSigningKeyHash != "" {
 		signer, err := ssh.NewSignerFromKey(key)
 		if err != nil {
-			return errors.Wrap(err, "cannot add signing key")
+			return fmt.Errorf("cannot add signing key: %w", err)
 		}
 		if ssh.FingerprintSHA256(signer.PublicKey()) != ks.preferredSigningKeyHash {
 			return errors.New("signing key fingerprint doesn't match the configured value")
@@ -287,7 +287,7 @@ func (ks *KeySignerService) AddSigningKey(encodedKey []byte, passphrase []byte, 
 		Comment:    comment,
 	})
 	if err != nil {
-		return errors.Wrap(err, "cannot add signing key")
+		return fmt.Errorf("cannot add signing key: %w", err)
 	}
 	if !ks.discoverSigningKey() {
 		return errors.New("cannot add signing key: agent is not accepting the key")
@@ -303,11 +303,11 @@ func (ks *KeySignerService) RemoveAllKeys() error {
 	}
 	if ks.pkcs11Provider != "" {
 		if err := ks.removeSmartcard(ks.pkcs11Provider); err != nil {
-			return errors.Wrap(err, "cannot remove smartcard")
+			return fmt.Errorf("cannot remove smartcard: %w", err)
 		}
 	}
 	if err := ks.client.RemoveAll(); err != nil {
-		return errors.Wrap(err, "cannot remove signing key")
+		return fmt.Errorf("cannot remove signing key: %w", err)
 	}
 	ks.selectedSigningKey = nil
 
@@ -376,12 +376,12 @@ func (ks *KeySignerService) callAgent(req []byte) (reply interface{}, err error)
 	binary.BigEndian.PutUint32(msg, uint32(len(req)))
 	copy(msg[4:], req)
 	if _, err = ks.conn.Write(msg); err != nil {
-		return nil, errors.Wrap(err, "agent error")
+		return nil, fmt.Errorf("agent error: %w", err)
 	}
 
 	var respSizeBuf [4]byte
 	if _, err = io.ReadFull(ks.conn, respSizeBuf[:]); err != nil {
-		return nil, errors.Wrap(err, "agent error")
+		return nil, fmt.Errorf("agent error: %w", err)
 	}
 	respSize := binary.BigEndian.Uint32(respSizeBuf[:])
 	if respSize > maxAgentResponseBytes {
@@ -390,11 +390,11 @@ func (ks *KeySignerService) callAgent(req []byte) (reply interface{}, err error)
 
 	buf := make([]byte, respSize)
 	if _, err = io.ReadFull(ks.conn, buf); err != nil {
-		return nil, errors.Wrap(err, "agent error")
+		return nil, fmt.Errorf("agent error: %w", err)
 	}
 	reply, err = unmarshal(buf)
 	if err != nil {
-		return nil, errors.Wrap(err, "agent error")
+		return nil, fmt.Errorf("agent error: %w", err)
 	}
 	return reply, err
 }
@@ -558,7 +558,7 @@ func unmarshal(packet []byte) (interface{}, error) {
 	case agentSuccess:
 		return new(successAgentMsg), nil
 	default:
-		return nil, errors.Errorf("agent: unknown type tag %d", packet[0])
+		return nil, fmt.Errorf("agent: unknown type tag %d", packet[0])
 	}
 }
 

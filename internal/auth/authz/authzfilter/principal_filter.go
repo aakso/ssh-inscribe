@@ -1,8 +1,9 @@
 package authzfilter
 
 import (
+	"fmt"
+
 	"github.com/gobwas/glob"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
@@ -109,7 +110,7 @@ func NewPrincipalFilter(config PrincipalFilterConfig) (auth.Authorizer, error) {
 	compile := func(pattern string) glob.Glob {
 		glob, err := glob.Compile(pattern)
 		if err != nil && compileError == nil {
-			compileError = errors.Wrapf(err, "cannot compile %q", pattern)
+			compileError = fmt.Errorf("cannot compile %q: %w", pattern, err)
 		}
 		return glob
 	}

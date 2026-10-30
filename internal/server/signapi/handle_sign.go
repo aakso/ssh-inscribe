@@ -1,20 +1,20 @@
 package signapi
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
 	"time"
 
-	"github.com/aakso/ssh-inscribe/internal/auth/authz/authzfilter"
-	"github.com/aakso/ssh-inscribe/internal/util"
-
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
-	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
+	"github.com/aakso/ssh-inscribe/internal/auth/authz/authzfilter"
+	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
 const minimumPrincipalsBatchSize = 10
@@ -46,7 +46,7 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 			FilterExcludePrincipalsGlob: principalsExclude,
 		})
 		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, errors.Wrap(err, "cannot parse principal filter"))
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Errorf("cannot parse principal filter: %w", err))
 		}
 		if ctx, ok := authz.Authorize(actx); !ok {
 			log.Error("user requested principal filter failed, this should not happen")
@@ -58,12 +58,12 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		err = errors.Wrap(err, "cannot read public key")
+		err = fmt.Errorf("cannot read public key: %w", err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	pubKey, _, _, _, err := ssh.ParseAuthorizedKey(body)
 	if err != nil {
-		err = errors.Wrap(err, "cannot parse public key")
+		err = fmt.Errorf("cannot parse public key: %w", err)
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	if _, ok := pubKey.(*ssh.Certificate); ok {
@@ -89,11 +89,11 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 	if exp := c.QueryParam("expires"); exp != "" {
 		validBefore, err = time.Parse(time.RFC3339, exp)
 		if err != nil {
-			err = errors.Wrap(err, "invalid expires")
+			err = fmt.Errorf("invalid expires: %w", err)
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 		if time.Until(validBefore) > sa.maxCertLife {
-			return echo.NewHTTPError(http.StatusBadRequest, errors.Errorf("maximum lifetime is %s", sa.maxCertLife).Error())
+			return echo.NewHTTPError(http.StatusBadRequest, fmt.Errorf("maximum lifetime is %s", sa.maxCertLife).Error())
 		}
 	}
 
@@ -102,12 +102,12 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 	if sval := c.QueryParam("max_principals_per_certificate"); sval != "" {
 		maxPrincipalsPerCertificate, err = strconv.ParseInt(sval, 10, 64)
 		if err != nil {
-			err = errors.Wrap(err, "invalid max_principals_per_certificate")
+			err = fmt.Errorf("invalid max_principals_per_certificate: %w", err)
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 		if maxPrincipalsPerCertificate < minimumPrincipalsBatchSize {
 			return echo.NewHTTPError(http.StatusBadRequest,
-				errors.Errorf("minimum value for max_principals_per_certificate is %d", minimumPrincipalsBatchSize))
+				fmt.Errorf("minimum value for max_principals_per_certificate is %d", minimumPrincipalsBatchSize))
 		}
 	}
 
@@ -131,7 +131,7 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 	var marshaledCerts []byte
 	for _, cert := range certs {
 		if err := sa.signer.SignCertificate(cert, algo); err != nil {
-			err = errors.Wrap(err, "cannot sign")
+			err = fmt.Errorf("cannot sign: %w", err)
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
 		log.

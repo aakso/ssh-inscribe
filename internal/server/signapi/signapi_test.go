@@ -105,7 +105,7 @@ func withApi(fn func(e *echo.Echo, signapi *SignApi)) {
 		_, _ = fmt.Fprintf(os.Stderr, "warning: cannot remove keys: %v\n", err)
 	}
 	auths := []AuthenticatorListEntry{
-		AuthenticatorListEntry{
+		{
 			Authenticator: authenticator,
 			Default:       false,
 		},

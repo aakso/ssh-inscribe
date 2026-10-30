@@ -1,13 +1,13 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
 	"github.com/ghodss/yaml"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/mitchellh/copystructure"
-	"github.com/pkg/errors"
 )
 
 var globalConfig map[string]interface{} = make(map[string]interface{})
@@ -16,7 +16,7 @@ var globalDefaults map[string]interface{} = make(map[string]interface{})
 func LoadConfig(loc string) error {
 	data, err := os.ReadFile(loc)
 	if err != nil {
-		return errors.Wrap(err, "cannot load configuration")
+		return fmt.Errorf("cannot load configuration: %w", err)
 	}
 	return LoadBytes(data)
 }
@@ -24,7 +24,7 @@ func LoadConfig(loc string) error {
 func LoadBytes(data []byte) error {
 	err := yaml.Unmarshal(data, &globalConfig)
 	if err != nil {
-		return errors.Wrap(err, "cannot parse configuration")
+		return fmt.Errorf("cannot parse configuration: %w", err)
 	}
 	return nil
 }
@@ -35,7 +35,7 @@ func Get(section string) (interface{}, error) {
 	def := GetDefault(section)
 	switch {
 	case val == nil && def == nil:
-		return nil, errors.Errorf("section not found: %s", section)
+		return nil, fmt.Errorf("section not found: %s", section)
 	case val != nil && def == nil:
 		return val, nil
 	}
@@ -44,7 +44,7 @@ func Get(section string) (interface{}, error) {
 		Result:           def,
 	})
 	if err := decoder.Decode(val); err != nil {
-		return nil, errors.Errorf("error while parsing section: %s", section)
+		return nil, fmt.Errorf("error while parsing section: %s", section)
 	}
 	return def, nil
 }

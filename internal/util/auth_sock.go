@@ -4,12 +4,11 @@
 package util
 
 import (
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"syscall"
-
-	"github.com/pkg/errors"
 )
 
 func DialAuthSock(name string) (net.Conn, error) {
@@ -18,7 +17,7 @@ func DialAuthSock(name string) (net.Conn, error) {
 	}
 	conn, err := net.Dial("unix", name)
 	if err != nil {
-		return nil, errors.Wrap(err, "could not connect to ssh-agent")
+		return nil, fmt.Errorf("could not connect to ssh-agent: %w", err)
 	}
 	return conn, nil
 }
@@ -26,14 +25,14 @@ func DialAuthSock(name string) (net.Conn, error) {
 func LocalListen(name string) (net.Listener, error) {
 	if _, err := os.Stat(name); err == nil {
 		if err := os.Remove(name); err != nil {
-			return nil, errors.Wrapf(err, "cannot remove existing socket: %s", name)
+			return nil, fmt.Errorf("cannot remove existing socket: %s: %w", name, err)
 		}
 	}
 	prevUmask := syscall.Umask(0177)
 	defer syscall.Umask(prevUmask)
 	ln, err := net.Listen("unix", name)
 	if err != nil {
-		return nil, errors.Wrap(err, "could not create a unix listener socket")
+		return nil, fmt.Errorf("could not create a unix listener socket: %w", err)
 	}
 	return ln, nil
 }
@@ -55,7 +54,7 @@ func CheckSocketPath(name string) error {
 		return err
 	}
 	if fi.Mode()&os.ModeSocket == 0 {
-		return errors.Errorf("%s is not a socket", name)
+		return fmt.Errorf("%s is not a socket", name)
 	}
 	if lfi.Mode()&os.ModeSymlink != 0 {
 		target, err := filepath.EvalSymlinks(name)
@@ -80,7 +79,7 @@ func checkPlantedByOtherUser(name string, fi os.FileInfo) error {
 		return err
 	}
 	if dir.Mode().Perm()&0o002 != 0 {
-		return errors.Errorf("refusing to use %s: owned by uid %d in a world-writable directory", name, st.Uid)
+		return fmt.Errorf("refusing to use %s: owned by uid %d in a world-writable directory", name, st.Uid)
 	}
 	return nil
 }

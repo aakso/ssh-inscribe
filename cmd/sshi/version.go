@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/aakso/ssh-inscribe/internal/ui"
-
 	"github.com/spf13/cobra"
 
 	"github.com/aakso/ssh-inscribe/internal/globals"
+	"github.com/aakso/ssh-inscribe/internal/ui"
 )
 
 // versionCmd represents the version command
