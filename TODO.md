@@ -42,6 +42,19 @@ typed by the user. Directories normalise names (case, UPN vs. sAMAccountName),
 so the typed form can differ from the canonical one. Prefer a configurable
 attribute of the found user entry, e.g. `sAMAccountName` or `uid`.
 
+### LDAP: verify the bound identity
+
+The backend binds with the rendered `userBindDN` and then searches with
+`userSearchFilter`, but does not check that the entry found is the one it
+bound as. With the usual templates both are derived from the same username,
+but a mismatch between the two templates (or directory specific bind name
+handling, e.g. AD UPNs) could attach another entry's groups. Compare the DN
+of the found entry with the bound identity (RFC 4532 WhoAmI, supported by
+OpenLDAP, 389 DS and AD).
+
+Also note that any `startTLS` value in `serverURL` enables StartTLS,
+including `false` (a warning is logged).
+
 ### Before rolling out OIDC
 
 - **Authorization request forwarding.** Anyone can start a flow and send the
@@ -71,6 +84,10 @@ directory account lockouts as a side effect) and flooding pending OIDC logins
 limits or document a reverse proxy setup.
 
 ### Smaller items
+
+- `util.CheckSocketPath` only inspects the socket's own directory and one
+  symlink hop. Sockets owned by another user in a directory that user owns,
+  or symlink chains through world-writable directories, are not detected.
 
 - The default agent socket of non-packaged builds is
   `$TMPDIR/ssh_inscribe_agent.sock`. Sockets planted by other users are now
@@ -127,3 +144,6 @@ the maintenance pass). Gaps, roughly by risk:
   levels, syslog URL parsing.
 - Fuzz tests: LDAP filter escaping, principal filter globs, certificate
   parsing on the client.
+- `make test-ldap` covers OpenLDAP 2.4.57 and 389 DS with an ACL that lets
+  authenticated users read the directory; Microsoft AD (recursive group
+  matching rule, UPN binds) is not covered.
