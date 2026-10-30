@@ -305,6 +305,40 @@ func TestAddCaKeyRequiresCompletedAuth(t *testing.T) {
 	})
 }
 
+func TestAddCaKeyRestrictedToAdmins(t *testing.T) {
+	withAPI(t, func(e *echo.Echo, signapi *SignAPI) {
+		require.Error(t, signapi.RestrictCAUpload([]string{"[unclosed"}))
+		require.NoError(t, signapi.RestrictCAUpload([]string{"*ca-admins"}))
+
+		token := func(principals ...string) string {
+			ss, _ := signapi.makeToken(&auth.AuthContext{
+				Status:     auth.StatusCompleted,
+				Principals: principals,
+			}).SignedString(signapi.tkey)
+			return ss
+		}
+		upload := func(path, token string) int {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, bytes.NewBuffer(testCaPrivatePem))
+			req.Header.Set("X-Auth", "Bearer "+token)
+			req.SetBasicAuth("", "passphrase")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			return rec.Code
+		}
+
+		// An unsafe principal must not grant the right either.
+		for _, ss := range []string{token("devs"), token("devs", "x,ca-admins")} {
+			for _, path := range []string{"/v1/ca", "/v1/ca?init_challenge=true", "/v1/ca/response"} {
+				assert.Equal(t, http.StatusForbidden, upload(path, ss), path)
+			}
+		}
+		assert.False(t, signapi.signer.Ready(), "no key should have been added")
+
+		assert.Equal(t, http.StatusAccepted, upload("/v1/ca", token("devs", "ca-admins")))
+		assert.True(t, signapi.signer.Ready())
+	})
+}
+
 func TestSigning(t *testing.T) {
 	withAPI(t, func(e *echo.Echo, signapi *SignAPI) {
 		actx := fakeAuthContext
