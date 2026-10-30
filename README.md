@@ -272,7 +272,7 @@ items to address before relying on OIDC in production.
 TODO
 
 ## Development
-`make check` runs formatting checks, vet, lint (also for Windows), tests and
+`make check` runs formatting checks, lint (also for Windows), tests and
 govulncheck, the same as CI. Tests need `ssh-agent` in `PATH`. See
 [AGENTS.md](AGENTS.md) for architecture notes, security invariants and
 conventions, and [TODO.md](TODO.md) for open work.

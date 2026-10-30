@@ -82,9 +82,9 @@ explicitly agreed.
 ## Working on the code
 
 ```
-make check     # fmt-check, vet, lint (linux + windows), test, govulncheck
+make check     # fmt-check, lint (linux + windows), test, govulncheck
 make test      # needs ssh-agent in PATH (tests start real agents)
-make lint      # golangci-lint, pinned version
+make lint      # golangci-lint, pinned version; includes govet
 make fmt       # gofmt + gci import grouping
 make test-ldap # authldap against OpenLDAP 2.4.57 and 389 DS (docker)
 ```

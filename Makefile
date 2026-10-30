@@ -12,7 +12,7 @@ all: check dist
 
 # check runs everything CI runs
 .PHONY: check
-check: fmt-check vet lint test vuln
+check: fmt-check lint test vuln
 
 .PHONY: build
 build:
@@ -30,15 +30,6 @@ test-ldap:
 	test/ldap/run-openldap.sh
 	test/ldap/run-389ds.sh
 
-.PHONY: vet
-vet:
-	go vet ./...
-	GOOS=windows go vet ./cmd/sshi/... ./internal/util/...
-
-.PHONY: fmt-check
-fmt-check:
-	@out="$$(gofmt -l cmd internal)"; if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
-
 BIN = $(CURDIR)/.bin
 GOLANGCI_LINT = $(BIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
 
@@ -46,15 +37,22 @@ $(GOLANGCI_LINT):
 	GOBIN=$(BIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	mv $(BIN)/golangci-lint $@
 
-# sshi is also built for Windows, lint those files too
+# sshi is also built for Windows, lint those files too. govet runs here,
+# including the Windows pass, so there is no separate vet target.
 .PHONY: lint
 lint: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./...
 	GOOS=windows $(GOLANGCI_LINT) run ./...
 
+# fmt rewrites. golangci-lint run does not.
 .PHONY: fmt
 fmt: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) fmt ./...
+
+# gofmt and gci, the formatters in .golangci.yml.
+.PHONY: fmt-check
+fmt-check: $(GOLANGCI_LINT)
+	$(GOLANGCI_LINT) fmt --diff ./...
 
 .PHONY: vuln
 vuln:

@@ -9,6 +9,9 @@ linters:
     - errorlint
     - gocritic
     - gosec
+    # Also a default linter. Listed so vet is not a separate step; the Windows
+    # lint run covers GOOS=windows. Defaults match go vet's analyzers.
+    - govet
     - intrange
     - misspell
     - modernize
