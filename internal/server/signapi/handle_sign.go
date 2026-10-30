@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -111,6 +112,9 @@ func (sa *SignAPI) HandleSign(c echo.Context) error {
 		}
 	}
 
+	// No certificate holds more principals than this anyway; the limit keeps
+	// the conversion to int safe on 32-bit platforms.
+	maxPrincipalsPerCertificate = min(maxPrincipalsPerCertificate, math.MaxInt32)
 	certs := auth.MakeCertificates(pubKey, actx, validBefore, int(maxPrincipalsPerCertificate))
 
 	// Signing option

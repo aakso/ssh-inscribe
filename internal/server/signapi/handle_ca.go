@@ -86,7 +86,8 @@ func (sa *SignAPI) HandleCaChallenge(c echo.Context) error {
 	}
 	challenge, err := sa.decryptChallenge(body)
 	if err != nil {
-		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
+		// Invalid input, or a challenge issued before a server restart
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 	log = log.WithField("original_audit_id", challenge.AuditID)
 	if time.Now().After(challenge.Expire) {

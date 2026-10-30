@@ -256,6 +256,14 @@ func TestAddCaKeyWithChallenge(t *testing.T) {
 					fmt.Println(rec.Body.String())
 				})
 			}
+			t.Run("RespondWithGarbage", func(t *testing.T) {
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/ca/response", bytes.NewBufferString("not a challenge"))
+				req.Header.Set("X-Auth", "Bearer "+ss)
+				req.SetBasicAuth("", "passphrase")
+				rec := httptest.NewRecorder()
+				e.ServeHTTP(rec, req)
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+			})
 			t.Run("RespondWitExpired", func(t *testing.T) {
 				_ = signapi.signer.RemoveAllKeys()
 				rec := httptest.NewRecorder()
@@ -542,6 +550,22 @@ func TestSigning(t *testing.T) {
 			rec = httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
 			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+
+		t.Run("TestSignWithHugeMaxPrincipalsPerCertificate", func(t *testing.T) {
+			u, _ := url.Parse("/v1/sign")
+			q := u.Query()
+			q.Set("max_principals_per_certificate", "9223372036854775807")
+			u.RawQuery = q.Encode()
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), bytes.NewBuffer(testUserPublic))
+			req.Header.Set("X-Auth", "Bearer "+ss)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if assert.Equal(t, http.StatusOK, rec.Code) {
+				_, _, _, rest, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+				assert.NoError(t, err)
+				assert.Empty(t, rest, "all principals in one certificate")
+			}
 		})
 
 		t.Run("TestSignWithInvalidMaxPrincipalsPerCertificate", func(t *testing.T) {
