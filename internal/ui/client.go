@@ -29,11 +29,11 @@ import (
 
 	"github.com/ScaleFT/sshkeys"
 	"github.com/blang/semver/v4"
+	"github.com/go-resty/resty/v2"
 	"github.com/pkg/errors"
 	"github.com/skratchdot/open-golang/open"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
-	"gopkg.in/resty.v1"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
 	"github.com/aakso/ssh-inscribe/internal/server/signapi/objects"
@@ -65,7 +65,6 @@ func (ir *ignoreRedirects) Apply(req *http.Request, via []*http.Request) error {
 type Client struct {
 	Config          *Config
 	rest            *resty.Client
-	restSRV         *resty.SRVRecord
 	agentClient     agent.Agent
 	agentConn       net.Conn
 	credentialInput func(name, realm, credentialType, def string) ([]byte, error)
@@ -1077,7 +1076,7 @@ func (c *Client) deleteCertsFromAgent() error {
 
 func (c *Client) checkReady() error {
 	log := Log.WithField("action", "checkReady").
-		WithField("target", c.rest.HostURL)
+		WithField("target", c.rest.BaseURL)
 	log.Debug("query server readiness")
 	res, err := c.newReq().Get(c.urlFor("ready"))
 	if err != nil {
@@ -1102,19 +1101,18 @@ func (c *Client) initREST() error {
 		return errors.New("retries cannot be negative")
 	}
 	rest := resty.New().
-		SetRESTMode().
 		SetDisableWarn(true).
-		SetHostURL(c.Config.URL).
+		SetBaseURL(c.Config.URL).
 		SetTimeout(c.Config.Timeout).
 		SetRetryCount(c.Config.Retries).
-		SetLogger(io.Discard).
 		SetRedirectPolicy(&ignoreRedirects{})
 
 	if parsed.Scheme == "https" {
 		rest.SetScheme("https")
 		rest.SetTLSClientConfig(&tls.Config{
 			ServerName:         parsed.Hostname(),
-			InsecureSkipVerify: c.Config.Insecure,
+			InsecureSkipVerify: c.Config.Insecure, //nolint:gosec // explicit user opt-in
+			MinVersion:         tls.VersionTLS12,
 		})
 	} else {
 		rest.SetScheme("http")
@@ -1124,8 +1122,10 @@ func (c *Client) initREST() error {
 	rest.Header.Set("User-Agent", globals.ClientUserAgent)
 	rest.Header.Set("X-Version", globals.Version().String())
 	if c.Config.Debug {
-		rest.SetDebug(true).
-			SetLogger(os.Stderr)
+		// resty's default logger writes to stderr
+		rest.SetDebug(true)
+	} else {
+		rest.SetLogger(discardLogger{})
 	}
 	c.rest = rest
 
@@ -1135,7 +1135,7 @@ func (c *Client) initREST() error {
 		log.WithField("SRV", name).Debug("discovering with SRV records")
 		for _, addr := range addrs {
 			parsed.Host = fmt.Sprintf("%s:%d", addr.Target, addr.Port)
-			rest.SetHostURL(parsed.String())
+			rest.SetBaseURL(parsed.String())
 			log := log.WithField("target", parsed.String())
 			if err := c.checkReady(); err != nil {
 				log.WithError(err).Debug("skipping")
@@ -1181,16 +1181,18 @@ func (c *Client) printCertificate(cert *ssh.Certificate) {
 }
 
 func (c *Client) newReq() *resty.Request {
-	r := c.rest.R()
-	if c.restSRV != nil {
-		r.SetSRV(c.restSRV)
-	}
-	return r
+	return c.rest.R()
 }
+
+type discardLogger struct{}
+
+func (discardLogger) Errorf(string, ...interface{}) {}
+func (discardLogger) Warnf(string, ...interface{})  {}
+func (discardLogger) Debugf(string, ...interface{}) {}
 
 // urlFor returns a versioned url
 func (c *Client) urlFor(s string) string {
-	if !strings.HasSuffix(c.rest.HostURL, fmt.Sprintf("/%s", CurrentApiVersion)) {
+	if !strings.HasSuffix(c.rest.BaseURL, fmt.Sprintf("/%s", CurrentApiVersion)) {
 		return fmt.Sprintf("%s/%s", CurrentApiVersion, s)
 	}
 	return s

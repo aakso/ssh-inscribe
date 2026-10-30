@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"time"
 
+	jose "github.com/go-jose/go-jose/v4"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
-	"gopkg.in/square/go-jose.v2"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
 )
@@ -101,6 +101,11 @@ func (sa *SignApi) HandleGetKey(c echo.Context) error {
 	}
 }
 
+const (
+	challengeKeyAlgorithm      = jose.RSA_OAEP_256
+	challengeContentEncryption = jose.A256GCM
+)
+
 func (sa *SignApi) encryptChallenge(key []byte, auditId string) ([]byte, error) {
 	obj := encryptedChallenge{
 		EncryptedKey: key,
@@ -111,8 +116,8 @@ func (sa *SignApi) encryptChallenge(key []byte, auditId string) ([]byte, error) 
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot encode challenge")
 	}
-	encryptor, err := jose.NewEncrypter(jose.A128GCM,
-		jose.Recipient{Algorithm: jose.RSA_OAEP, Key: sa.caChallengeKey.Public()}, nil)
+	encryptor, err := jose.NewEncrypter(challengeContentEncryption,
+		jose.Recipient{Algorithm: challengeKeyAlgorithm, Key: sa.caChallengeKey.Public()}, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot init challenge encryptor")
 	}
@@ -129,7 +134,10 @@ func (sa *SignApi) encryptChallenge(key []byte, auditId string) ([]byte, error) 
 
 func (sa *SignApi) decryptChallenge(challenge []byte) (*encryptedChallenge, error) {
 	var obj encryptedChallenge
-	parsedCiphertext, err := jose.ParseEncrypted(string(challenge))
+	parsedCiphertext, err := jose.ParseEncryptedCompact(string(challenge),
+		[]jose.KeyAlgorithm{challengeKeyAlgorithm},
+		[]jose.ContentEncryption{challengeContentEncryption},
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot decode challenge")
 	}

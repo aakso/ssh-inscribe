@@ -8,7 +8,7 @@ import (
 	"text/template"
 	"time"
 
-	ldap "gopkg.in/ldap.v2"
+	"github.com/go-ldap/ldap/v3"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
