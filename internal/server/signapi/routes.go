@@ -58,8 +58,10 @@ func jwtAuth(key []byte, skipIfMissing bool) echo.MiddlewareFunc {
 			}
 
 			auth = strings.TrimPrefix(auth, "Bearer ")
-			// Decode into a fresh claims object on every request. Sharing one
-			// would merge maps from earlier tokens into later ones.
+			// Decode into a fresh claims object on every request. The library
+			// writes the payload before it checks the signature, so a shared
+			// object would keep maps from rejected tokens and race with
+			// concurrent requests.
 			token, err := jwt.ParseWithClaims(auth, &SignClaim{}, keyFunc,
 				jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 				jwt.WithExpirationRequired(),
