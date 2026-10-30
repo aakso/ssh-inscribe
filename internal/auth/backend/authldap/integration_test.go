@@ -133,3 +133,35 @@ itldap:
 	assert.ElementsMatch(t, []string{"everyone", "alice", "ldap-devs", "ldap-admins"}, actx.Principals)
 	assert.Contains(t, actx.Extensions, "permit-pty")
 }
+
+// The bind and the user search templates are independent. A search that
+// finds another entry than the bound one must not hand out its groups.
+func TestIntegrationBoundIdentityMismatch(t *testing.T) {
+	plain, _ := integrationURLs(t)
+	conf := integrationConfig(plain)
+	conf.UserSearchFilter = "(&(objectClass=inetOrgPerson)(uid=carol))"
+	actx, ok := integrationLogin(t, conf, "alice", "secret")
+	assert.False(t, ok)
+	assert.Nil(t, actx)
+
+	conf.VerifyBoundIdentity = false
+	actx, ok = integrationLogin(t, conf, "alice", "secret")
+	require.True(t, ok, "without the check the login gets the other entry")
+	assert.Equal(t, "Carol Jones", actx.SubjectName)
+}
+
+// Directories match names case-insensitively; the principal should be the
+// canonical name from the entry, not the name as typed.
+func TestIntegrationUserNamePrincipalAttribute(t *testing.T) {
+	plain, _ := integrationURLs(t)
+	conf := integrationConfig(plain)
+	actx, ok := integrationLogin(t, conf, "ALICE", "secret")
+	require.True(t, ok)
+	assert.Contains(t, actx.Principals, "ALICE")
+
+	conf.UserNamePrincipalAttribute = "uid"
+	conf.UserSearchGetAttributes = []string{"displayName"}
+	actx, ok = integrationLogin(t, conf, "ALICE", "secret")
+	require.True(t, ok)
+	assert.ElementsMatch(t, []string{"alice", "devs", "admins"}, actx.Principals)
+}

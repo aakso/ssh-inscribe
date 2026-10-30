@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"text/template"
 	"time"
 
@@ -29,6 +31,10 @@ const (
 	Principal         = "Principal"
 
 	AuthLDAPUsertEntry = "authLDAPUserEntry"
+
+	authzIDDNPrefix        = "dn:"
+	authzIDUserPrefix      = "u:"
+	adAccountNameAttribute = "sAMAccountName"
 )
 
 type AuthLDAP struct {
@@ -38,6 +44,10 @@ type AuthLDAP struct {
 	connectMode int
 
 	tpls *template.Template
+
+	// whoAmI returns the authorization identity of the bound connection.
+	// Replaced in tests, the mock directory cannot answer WhoAmI.
+	whoAmI func(*ldap.Conn) (string, error)
 }
 
 func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials) (*auth.AuthContext, bool) {
@@ -71,11 +81,6 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		newctx.AuthMeta = make(map[string]any)
 	}
 
-	// Add username as principal if configured
-	if al.config.UserNamePrincipal {
-		newctx.Principals = append(newctx.Principals, creds.UserIdentifier)
-	}
-
 	// Template context is passed to all templates
 	tplCtx := map[string]any{
 		"UserName": creds.UserIdentifier,
@@ -96,9 +101,17 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		return nil, false
 	}
 
+	var authzID string
+	if al.config.VerifyBoundIdentity {
+		if authzID, err = al.whoAmI(conn); err != nil {
+			log.WithError(err).Error("cannot determine the bound identity (WhoAmI); set verifyBoundIdentity: false if the directory does not support it")
+			return nil, false
+		}
+	}
+
 	// Find user entry, require a single match
 	filter := al.RenderTpl(UserSearchFilter, filterContext(tplCtx))
-	res, err := al.search(conn, al.config.UserSearchBase, filter, al.config.UserSearchGetAttributes)
+	res, err := al.search(conn, al.config.UserSearchBase, filter, al.userSearchAttributes(authzID))
 	if err != nil {
 		log.WithError(err).Error("search failure")
 		return nil, false
@@ -107,7 +120,37 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		log.WithField("matches", len(res.Entries)).Error("not a single match")
 		return nil, false
 	}
-	user := entryToMap(res.Entries[0])
+	entry := res.Entries[0]
+
+	// The bind and the search templates are independent; make sure the
+	// entry whose groups become principals is the one that authenticated.
+	if al.config.VerifyBoundIdentity {
+		if err := checkBoundIdentity(authzID, entry); err != nil {
+			log.WithError(err).WithFields(logrus.Fields{
+				"bind_dn":  binddn,
+				"entry_dn": entry.DN,
+			}).Error("bound identity does not match the user entry")
+			return nil, false
+		}
+	}
+
+	if al.config.UserNamePrincipal {
+		principal := creds.UserIdentifier
+		if attr := al.config.UserNamePrincipalAttribute; attr != "" {
+			values := entry.GetEqualFoldAttributeValues(attr)
+			if len(values) != 1 || values[0] == "" {
+				log.WithFields(logrus.Fields{
+					"attribute": attr,
+					"values":    len(values),
+				}).Error("user entry needs exactly one value for userNamePrincipalAttribute")
+				return nil, false
+			}
+			principal = values[0]
+		}
+		newctx.Principals = append(newctx.Principals, principal)
+	}
+
+	user := entryToMap(entry)
 	tplCtx["User"] = user
 	newctx.SubjectName = al.RenderTpl(SubjectName, tplCtx)
 	newctx.AuthMeta[AuthLDAPUsertEntry] = user
@@ -132,6 +175,76 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 	}
 
 	return newctx, true
+}
+
+func ldapWhoAmI(conn *ldap.Conn) (string, error) {
+	res, err := conn.WhoAmI(nil)
+	if err != nil {
+		return "", err
+	}
+	return res.AuthzID, nil
+}
+
+// userSearchAttributes adds the attributes the login needs to the configured
+// ones. An empty list already returns all user attributes.
+func (al *AuthLDAP) userSearchAttributes(authzID string) []string {
+	attrs := al.config.UserSearchGetAttributes
+	if len(attrs) == 0 {
+		return attrs
+	}
+	attrs = slices.Clone(attrs)
+	if al.config.UserNamePrincipal && al.config.UserNamePrincipalAttribute != "" {
+		attrs = append(attrs, al.config.UserNamePrincipalAttribute)
+	}
+	if strings.HasPrefix(authzID, authzIDUserPrefix) {
+		attrs = append(attrs, adAccountNameAttribute)
+	}
+	return attrs
+}
+
+// checkBoundIdentity compares the authorization identity of the bind (RFC
+// 4532 WhoAmI) with the user entry. OpenLDAP and 389 DS return the DN
+// ("dn:uid=alice,..."), Active Directory returns the account name
+// ("u:EXAMPLE\alice"), which is compared with sAMAccountName. The domain
+// part is not checked, see TODO.md.
+func checkBoundIdentity(authzID string, entry *ldap.Entry) error {
+	switch {
+	case strings.HasPrefix(authzID, authzIDDNPrefix):
+		boundDN := strings.TrimSpace(strings.TrimPrefix(authzID, authzIDDNPrefix))
+		if boundDN == "" {
+			return errors.New("anonymous bind")
+		}
+		bound, err := ldap.ParseDN(boundDN)
+		if err != nil {
+			return fmt.Errorf("cannot parse bound DN %q: %w", boundDN, err)
+		}
+		found, err := ldap.ParseDN(entry.DN)
+		if err != nil {
+			return fmt.Errorf("cannot parse entry DN %q: %w", entry.DN, err)
+		}
+		if !bound.EqualFold(found) {
+			return fmt.Errorf("bound as %q", boundDN)
+		}
+		return nil
+	case strings.HasPrefix(authzID, authzIDUserPrefix):
+		name := strings.TrimSpace(strings.TrimPrefix(authzID, authzIDUserPrefix))
+		if i := strings.LastIndexByte(name, '\\'); i >= 0 {
+			name = name[i+1:]
+		}
+		if name == "" {
+			return errors.New("anonymous bind")
+		}
+		for _, v := range entry.GetEqualFoldAttributeValues(adAccountNameAttribute) {
+			if strings.EqualFold(v, name) {
+				return nil
+			}
+		}
+		return fmt.Errorf("bound as %q, which is not the %s of the entry", authzID, adAccountNameAttribute)
+	case authzID == "":
+		return errors.New("anonymous bind")
+	default:
+		return fmt.Errorf("unsupported authorization identity %q", authzID)
+	}
 }
 
 func (al *AuthLDAP) dial() (*ldap.Conn, error) {
@@ -296,6 +409,7 @@ func New(conf *Config) (*AuthLDAP, error) {
 		url:         url,
 		connectMode: connectMode,
 		tpls:        rootTpl,
+		whoAmI:      ldapWhoAmI,
 	}, nil
 }
 
