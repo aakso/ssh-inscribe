@@ -19,7 +19,6 @@ import (
 
 var (
 	testConf   = *Defaults
-	testInst   *AuthLDAP
 	testServer *ldapserver.Server
 	testLog    = logging.GetLogger("test")
 	verbose    bool
@@ -56,16 +55,24 @@ func TestMain(m *testing.M) {
 	os.Exit(ret)
 }
 
-func TestInit(t *testing.T) {
-	var err error
-	assert := assert.New(t)
-	testInst, err = New(&testConf)
-	assert.NoError(err)
+// newTestInstance returns an authenticator for the test directory using a
+// copy of testConf, so tests can change settings independently.
+func newTestInstance(t *testing.T, mods ...func(*Config)) *AuthLDAP {
+	t.Helper()
+	conf := testConf
+	for _, m := range mods {
+		m(&conf)
+	}
+	inst, err := New(&conf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return inst
 }
 
 func TestAuthenticate(t *testing.T) {
 	assert := assert.New(t)
-	actx, ok := testInst.Authenticate(nil, &auth.Credentials{
+	actx, ok := newTestInstance(t).Authenticate(nil, &auth.Credentials{
 		UserIdentifier: TestUser,
 		Secret:         []byte(TestPassword),
 	})
@@ -78,9 +85,9 @@ func TestAuthenticate(t *testing.T) {
 }
 
 func TestAuthenticateNoUserNamePrincipal(t *testing.T) {
-	testInst.config.UserNamePrincipal = false
+	inst := newTestInstance(t, func(c *Config) { c.UserNamePrincipal = false })
 	assert := assert.New(t)
-	actx, ok := testInst.Authenticate(nil, &auth.Credentials{
+	actx, ok := inst.Authenticate(nil, &auth.Credentials{
 		UserIdentifier: TestUser,
 		Secret:         []byte(TestPassword),
 	})
@@ -91,7 +98,7 @@ func TestAuthenticateNoUserNamePrincipal(t *testing.T) {
 
 func TestAuthFail(t *testing.T) {
 	assert := assert.New(t)
-	actx, ok := testInst.Authenticate(nil, &auth.Credentials{
+	actx, ok := newTestInstance(t).Authenticate(nil, &auth.Credentials{
 		UserIdentifier: TestUser,
 		Secret:         []byte("invalid"),
 	})
@@ -101,7 +108,7 @@ func TestAuthFail(t *testing.T) {
 
 func TestAuthEmptyPassword(t *testing.T) {
 	assert := assert.New(t)
-	actx, ok := testInst.Authenticate(nil, &auth.Credentials{
+	actx, ok := newTestInstance(t).Authenticate(nil, &auth.Credentials{
 		UserIdentifier: TestUser,
 		Secret:         nil,
 	})
@@ -111,10 +118,7 @@ func TestAuthEmptyPassword(t *testing.T) {
 
 func TestSearchFilterEscaping(t *testing.T) {
 	assert := assert.New(t)
-	inst, err := New(&testConf)
-	if !assert.NoError(err) {
-		return
-	}
+	inst := newTestInstance(t)
 	tplCtx := map[string]any{
 		"UserName": "alice)(sAMAccountName=*",
 		"User": EntryMap{

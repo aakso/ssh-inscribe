@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -71,7 +71,6 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 		AuthRealm:   "testrealm",
 		AuthContext: fakeAuthContext,
 	}
-	socketPath          = path.Join(os.TempDir(), "signapitest")
 	signingKey          = []byte("testkey")
 	caChallengeLifetime = 3 * time.Second
 )
@@ -92,8 +91,9 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func withAPI(fn func(e *echo.Echo, signapi *SignAPI)) {
-	signer := keysigner.New(socketPath, "")
+func withAPI(t *testing.T, fn func(e *echo.Echo, signapi *SignAPI)) {
+	t.Helper()
+	signer := keysigner.New(filepath.Join(t.TempDir(), "agent.sock"), "")
 	for range 3 {
 		if signer.AgentPing() {
 			break
@@ -123,7 +123,7 @@ func withAPI(fn func(e *echo.Echo, signapi *SignAPI)) {
 }
 
 func TestDiscovery(t *testing.T) {
-	withAPI(func(e *echo.Echo, _ *SignAPI) {
+	withAPI(t, func(e *echo.Echo, _ *SignAPI) {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/auth", nil)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
@@ -132,7 +132,7 @@ func TestDiscovery(t *testing.T) {
 }
 
 func TestNotReady(t *testing.T) {
-	withAPI(func(e *echo.Echo, _ *SignAPI) {
+	withAPI(t, func(e *echo.Echo, _ *SignAPI) {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/ready", nil)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
@@ -141,7 +141,7 @@ func TestNotReady(t *testing.T) {
 }
 
 func TestLogin(t *testing.T) {
-	withAPI(func(e *echo.Echo, _ *SignAPI) {
+	withAPI(t, func(e *echo.Echo, _ *SignAPI) {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/auth/"+authenticator.Name(), nil)
 		req.SetBasicAuth(authenticator.User, string(authenticator.Secret))
 		rec := httptest.NewRecorder()
@@ -180,7 +180,7 @@ func TestLogin(t *testing.T) {
 }
 
 func TestLoginLongAuthContext(t *testing.T) {
-	withAPI(func(e *echo.Echo, signapi *SignAPI) {
+	withAPI(t, func(e *echo.Echo, signapi *SignAPI) {
 		actx := &auth.AuthContext{Status: auth.StatusCompleted}
 		for i := 1; i <= MaxAuthContextChainLength; i++ {
 			actx = &auth.AuthContext{Parent: actx, Status: auth.StatusCompleted}
@@ -202,7 +202,7 @@ func TestLoginLongAuthContext(t *testing.T) {
 }
 
 func TestAddCaKeyWithChallenge(t *testing.T) {
-	withAPI(func(e *echo.Echo, signapi *SignAPI) {
+	withAPI(t, func(e *echo.Echo, signapi *SignAPI) {
 		actx := fakeAuthContext
 		actx.Status = auth.StatusCompleted
 		token := signapi.makeToken(&actx)
@@ -278,7 +278,7 @@ func TestAddCaKeyWithChallenge(t *testing.T) {
 }
 
 func TestAddCaKeyRequiresCompletedAuth(t *testing.T) {
-	withAPI(func(e *echo.Echo, signapi *SignAPI) {
+	withAPI(t, func(e *echo.Echo, signapi *SignAPI) {
 		pending := &auth.AuthContext{Status: auth.StatusPending}
 		ss, _ := signapi.makeToken(pending).SignedString(signapi.tkey)
 
@@ -295,7 +295,7 @@ func TestAddCaKeyRequiresCompletedAuth(t *testing.T) {
 }
 
 func TestSigning(t *testing.T) {
-	withAPI(func(e *echo.Echo, signapi *SignAPI) {
+	withAPI(t, func(e *echo.Echo, signapi *SignAPI) {
 		actx := fakeAuthContext
 		actx.Status = auth.StatusCompleted
 		token := signapi.makeToken(&actx)
@@ -624,7 +624,7 @@ func TestJWTClaimsAreNotSharedBetweenRequests(t *testing.T) {
 func TestSignWarnsAboutUnsafePrincipals(t *testing.T) {
 	hook := logtest.NewLocal(Log.Logger)
 	t.Cleanup(hook.Reset)
-	withAPI(func(e *echo.Echo, signapi *SignAPI) {
+	withAPI(t, func(e *echo.Echo, signapi *SignAPI) {
 		if !assert.NoError(t, signapi.signer.AddSigningKey(testCaPrivatePem, nil, "")) {
 			return
 		}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -79,7 +80,6 @@ mU5fO7aSgagjS0fJXWqa2w8oYFTG1dGDg+H0tHvYyH7dTPtEfhM8FV8=
 	testUserPublic       = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC32gyZOLC0RHDntCk+0T5pDNYYytfmP/Jzx+tpqNGEuCWnOV9PwBLdRPT2SNIzCq1GBQWYg63GZ4qWbuvSBvo904Y69q0RWugbcNjpclzkJGT0Bl50l/ppeuJ8wLVFnguCH92E2ja/8tiIPtetKGmFDdSTETIRshGUE6PnuPy2/1BL1ES55XfOGLcvzf/yDi+JeuwQqWi8YMxAIm8ug0yn4GPBPK/MNpnMG3AQmwmviQT6nC6Ky/B9VJk2418v++lAgKRXwyqUeaHd2jAj+5lQ72zc3mZjwFnwTZJWySaGtqxQea9l1wYOhZOEyV4+KOgfLoZ3ps+vmMLGSxmnGmAj user`)
 	testCaPrivate        any
 	testCaPrivateInvalid any
-	socketPath           = path.Join(os.TempDir(), "keysignertest")
 	certValidBefore      = uint64(time.Date(2050, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
 
 	socketPathSmartCard = path.Join(os.TempDir(), "keysignertestsmartcard")
@@ -195,26 +195,33 @@ func TestMain(m *testing.M) {
 	os.Exit(r)
 }
 
+// testSocket returns an agent socket path private to the test.
+func testSocket(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), "agent.sock")
+}
+
 func TestService(t *testing.T) {
-	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	srv := New(testSocket(t), ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 	assert.True(t, wait(srv.AgentPing), "agent should respond")
 }
 
 func TestExistingAgent(t *testing.T) {
-	srv1 := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	sock := testSocket(t)
+	srv1 := New(sock, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv1.KillAgent()
 	wait(srv1.AgentPing)
 	srv1.Close()
 	// Start new service with agent already listening
-	srv2 := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	srv2 := New(sock, ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv2.Close()
 	assert.True(t, wait(srv2.AgentPing), "agent should respond")
 }
 
 func TestAddSigningKey(t *testing.T) {
-	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	srv := New(testSocket(t), ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
@@ -224,7 +231,7 @@ func TestAddSigningKey(t *testing.T) {
 }
 
 func TestAddEncryptedSigningKey(t *testing.T) {
-	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	srv := New(testSocket(t), ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
@@ -242,7 +249,7 @@ func TestAddEncryptedSigningKey(t *testing.T) {
 }
 
 func TestAddInvalidSigningKey(t *testing.T) {
-	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	srv := New(testSocket(t), ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
@@ -251,7 +258,7 @@ func TestAddInvalidSigningKey(t *testing.T) {
 }
 
 func TestExternallyDiscoverAddedKey(t *testing.T) {
-	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	srv := New(testSocket(t), ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
@@ -261,7 +268,7 @@ func TestExternallyDiscoverAddedKey(t *testing.T) {
 }
 
 func TestExternallyDiscoverInvalidAddedKey(t *testing.T) {
-	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	srv := New(testSocket(t), ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
@@ -271,7 +278,7 @@ func TestExternallyDiscoverInvalidAddedKey(t *testing.T) {
 }
 
 func TestSign(t *testing.T) {
-	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	srv := New(testSocket(t), ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
@@ -303,7 +310,7 @@ func TestSign(t *testing.T) {
 }
 
 func TestGetPublicKey(t *testing.T) {
-	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	srv := New(testSocket(t), ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
@@ -323,7 +330,7 @@ func TestAddSmartCard(t *testing.T) {
 	if smartCardID == "" || smartCardPin == "" {
 		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PIN set")
 	}
-	srv := New(socketPath, "")
+	srv := New(testSocket(t), "")
 	defer srv.KillAgent()
 	defer srv.Close()
 
@@ -343,7 +350,7 @@ func TestSmartCardSessionRecovery(t *testing.T) {
 	if smartCardID == "" || smartCardPin == "" {
 		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PIN set")
 	}
-	srv := New(socketPath, "")
+	srv := New(testSocket(t), "")
 	defer srv.KillAgent()
 	defer srv.Close()
 	assert.True(t, wait(srv.AgentPing))
@@ -367,7 +374,7 @@ func TestSmartCardSessionRecovery(t *testing.T) {
 }
 
 func TestSigningTest(t *testing.T) {
-	srv := New(socketPath, ssh.FingerprintSHA256(testCaPublicParsed))
+	srv := New(testSocket(t), ssh.FingerprintSHA256(testCaPublicParsed))
 	defer srv.KillAgent()
 	defer srv.Close()
 
