@@ -6,7 +6,9 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/pem"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -315,6 +317,32 @@ func TestCloseIsIdempotent(t *testing.T) {
 	c.Close() // sshi exec closes explicitly and again when returning
 	assert.Empty(t, hook.AllEntries(), "a second Close must not log errors")
 }
+
+// --debug must not print passwords or session tokens.
+func TestDebugOutputIsRedacted(t *testing.T) {
+	env := startServer(t, false)
+	var out bytes.Buffer
+	c := env.client(t, &credentials{password: testPassword}, func(conf *Config) { conf.Debug = true })
+	require.NoError(t, c.initREST())
+	c.rest.SetLogger(bufLogger{&out})
+	require.NoError(t, c.authenticate())
+	require.NoError(t, c.discoverCA())
+	require.NoError(t, c.generate())
+	require.NoError(t, c.sign())
+
+	log := out.String()
+	require.Contains(t, log, "/v1/sign", "debug output expected")
+	assert.Contains(t, log, redacted)
+	assert.NotContains(t, log, "Basic ")
+	assert.NotContains(t, log, string(c.signerToken), "session token")
+	assert.NotContains(t, log, base64.StdEncoding.EncodeToString([]byte(testUser+":"+testPassword)))
+}
+
+type bufLogger struct{ b *bytes.Buffer }
+
+func (l bufLogger) Errorf(f string, v ...any) { fmt.Fprintf(l.b, f, v...) }
+func (l bufLogger) Warnf(f string, v ...any)  { fmt.Fprintf(l.b, f, v...) }
+func (l bufLogger) Debugf(f string, v ...any) { fmt.Fprintf(l.b, f, v...) }
 
 func TestGetCAAndVersion(t *testing.T) {
 	env := startServer(t, false)

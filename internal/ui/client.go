@@ -1115,7 +1115,9 @@ func (c *Client) initREST() error {
 	rest.Header.Set("X-Version", globals.Version().String())
 	if c.Config.Debug {
 		// resty's default logger writes to stderr
-		rest.SetDebug(true)
+		rest.SetDebug(true).
+			OnRequestLog(redactRequestLog).
+			OnResponseLog(redactResponseLog)
 	} else {
 		rest.SetLogger(discardLogger{})
 	}
@@ -1183,6 +1185,28 @@ func (c *Client) printCertificate(w io.Writer, cert *ssh.Certificate) error {
 
 func (c *Client) newReq() *resty.Request {
 	return c.rest.R()
+}
+
+const redacted = "<redacted>"
+
+// Headers carrying credentials or session tokens, hidden from --debug output.
+var sensitiveHeaders = []string{"Authorization", "X-Auth"}
+
+func redactRequestLog(rl *resty.RequestLog) error {
+	for _, h := range sensitiveHeaders {
+		if rl.Header.Get(h) != "" {
+			rl.Header.Set(h, redacted)
+		}
+	}
+	return nil
+}
+
+// Login responses carry the session token in the body.
+func redactResponseLog(rl *resty.ResponseLog) error {
+	if strings.HasPrefix(rl.Header.Get("Content-Type"), "application/jwt") {
+		rl.Body = redacted
+	}
+	return nil
 }
 
 type discardLogger struct{}
