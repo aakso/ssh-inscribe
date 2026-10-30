@@ -23,7 +23,7 @@ current behaviour with a warning.
 The server signs any public key type and size the client sends, and clients
 may request `signing_option=ssh-rsa` (SHA-1 signature). Reject DSA keys and
 RSA keys below 2048 bits, and make `ssh-rsa` signatures opt-in through server
-configuration. The current RSA 4096 CA key is not affected.
+configuration.
 
 ### Enforce safe principals for LDAP (breaking)
 
