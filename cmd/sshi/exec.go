@@ -185,7 +185,9 @@ func (a *adhocAgent) serve(conn net.Conn) {
 		a.mu.Unlock()
 		_ = conn.Close()
 	}()
-	if err := agent.ServeAgent(a.impl, conn); !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+	// Closed by Close: net.ErrClosed for sockets, os.ErrClosed for Windows pipes
+	err := agent.ServeAgent(a.impl, conn)
+	if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) && !errors.Is(err, os.ErrClosed) {
 		log.WithError(err).Error("agent error")
 	}
 	log.Debug("connection closed")
