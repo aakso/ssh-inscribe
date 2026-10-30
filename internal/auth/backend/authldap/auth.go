@@ -3,7 +3,7 @@ package authldap
 import (
 	"bytes"
 	"crypto/tls"
-	"fmt"
+	"net"
 	"net/url"
 	"text/template"
 	"time"
@@ -41,9 +41,19 @@ type AuthLDAP struct {
 
 func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials) (*auth.AuthContext, bool) {
 	var err error
+	if creds == nil {
+		return nil, false
+	}
 	log := al.log.WithField("action", "authenticate")
 	if v, ok := creds.Meta[auth.MetaAuditID]; ok {
 		log = log.WithField(auth.MetaAuditID, v)
+	}
+
+	// An empty password turns a simple bind into an unauthenticated bind,
+	// which many directory servers report as successful.
+	if creds.UserIdentifier == "" || len(creds.Secret) == 0 {
+		log.Info("empty username or password")
+		return nil, false
 	}
 
 	newctx := &auth.AuthContext{
@@ -51,7 +61,7 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		Parent:          pctx,
 		SubjectName:     creds.UserIdentifier,
 		AuthMeta:        creds.Meta,
-		Principals:      al.config.Principals,
+		Principals:      append([]string(nil), al.config.Principals...),
 		CriticalOptions: al.config.CriticalOptions,
 		Extensions:      al.config.Extensions,
 		Authenticator:   al.Name(),
@@ -70,38 +80,14 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		"UserName": creds.UserIdentifier,
 	}
 
-	// Set ldap package level dial timeout as it doesn't offer any other way
-	ldap.DefaultTimeout = time.Second * time.Duration(al.config.Timeout)
-	var conn *ldap.Conn
-	host := fmt.Sprintf("%s:%s", al.url.Hostname(), al.url.Port())
-	switch al.connectMode {
-	case ConnectModeLDAPS:
-		conn, err = ldap.DialTLS("tcp", host, &tls.Config{
-			InsecureSkipVerify: al.config.Insecure,
-			ServerName:         al.url.Hostname(),
-		})
-		if err != nil {
-			log.WithError(err).Error("cannot connect to directory server")
-			return nil, false
-		}
-	case ConnectModePlain, ConnectModeStartTLS:
-		conn, err = ldap.Dial("tcp", host)
-		if err != nil {
-			log.WithError(err).Error("cannot connect to directory server")
-			return nil, false
-		}
+	conn, err := al.dial()
+	if err != nil {
+		log.WithError(err).Error("cannot connect to directory server")
+		return nil, false
 	}
-	defer conn.Close()
-	conn.SetTimeout(time.Second * time.Duration(al.config.Timeout))
-	if al.connectMode == ConnectModeStartTLS {
-		if err := conn.StartTLS(&tls.Config{
-			InsecureSkipVerify: al.config.Insecure,
-			ServerName:         al.url.Hostname(),
-		}); err != nil {
-			log.WithError(err).Error("cannot connect to directory server")
-			return nil, false
-		}
-	}
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	binddn := al.RenderTpl(UserBindDN, tplCtx)
 	if err := conn.Bind(binddn, string(creds.Secret)); err != nil {
@@ -110,7 +96,7 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 	}
 
 	// Find user entry, require a single match
-	filter := al.RenderTpl(UserSearchFilter, tplCtx)
+	filter := al.RenderTpl(UserSearchFilter, filterContext(tplCtx))
 	res, err := al.search(conn, al.config.UserSearchBase, filter, al.config.UserSearchGetAttributes)
 	if err != nil {
 		log.WithError(err).Error("search failure")
@@ -128,7 +114,7 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 
 	// Find groups
 	if al.config.AddPrincipalsFromGroups {
-		filter = al.RenderTpl(GroupSearchFilter, tplCtx)
+		filter = al.RenderTpl(GroupSearchFilter, filterContext(tplCtx))
 		res, err = al.search(conn, al.config.GroupSearchBase, filter, al.config.GroupSearchGetAttributes)
 		if err != nil {
 			log.WithError(err).Error("search failure")
@@ -145,6 +131,63 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 	}
 
 	return newctx, true
+}
+
+func (al *AuthLDAP) dial() (*ldap.Conn, error) {
+	timeout := time.Second * time.Duration(al.config.Timeout)
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: al.config.Insecure, //nolint:gosec // explicit opt-in via configuration
+		ServerName:         al.url.Hostname(),
+		MinVersion:         tls.VersionTLS12,
+	}
+	addr := (&url.URL{Scheme: al.url.Scheme, Host: al.url.Host}).String()
+	conn, err := ldap.DialURL(addr,
+		ldap.DialWithDialer(&net.Dialer{Timeout: timeout}),
+		ldap.DialWithTLSConfig(tlsConfig),
+	)
+	if err != nil {
+		return nil, err
+	}
+	conn.SetTimeout(timeout)
+	if al.connectMode == ConnectModeStartTLS {
+		if err := conn.StartTLS(tlsConfig); err != nil {
+			_ = conn.Close()
+			return nil, err
+		}
+	}
+	return conn, nil
+}
+
+// filterContext returns a copy of the template context where every value
+// that may originate from the user or the directory is escaped for use in an
+// LDAP search filter (RFC 4515).
+func filterContext(tplCtx map[string]interface{}) map[string]interface{} {
+	ret := make(map[string]interface{}, len(tplCtx))
+	for k, v := range tplCtx {
+		ret[k] = escapeFilterValue(v)
+	}
+	return ret
+}
+
+func escapeFilterValue(v interface{}) interface{} {
+	switch v := v.(type) {
+	case string:
+		return ldap.EscapeFilter(v)
+	case []string:
+		r := make([]string, len(v))
+		for i, s := range v {
+			r[i] = ldap.EscapeFilter(s)
+		}
+		return r
+	case EntryMap:
+		r := make(EntryMap, len(v))
+		for k, val := range v {
+			r[k] = escapeFilterValue(val)
+		}
+		return r
+	default:
+		return v
+	}
 }
 
 func (al *AuthLDAP) search(conn *ldap.Conn, base, filter string, attrs []string) (*ldap.SearchResult, error) {
@@ -230,12 +273,19 @@ func New(conf *Config) (*AuthLDAP, error) {
 	if url.Port() == "" {
 		return nil, errors.New("missing port for the ServerURL")
 	}
+	log := Log.WithFields(logrus.Fields{
+		"realm": conf.Realm,
+		"name":  conf.Name,
+	})
+	if connectMode == ConnectModePlain {
+		log.Warn("LDAP connection is not encrypted, passwords are sent in clear text. Use ldaps:// or ?startTLS=true")
+	}
+	if conf.Insecure {
+		log.Warn("LDAP server certificate verification is disabled")
+	}
 
 	return &AuthLDAP{
-		log: Log.WithFields(logrus.Fields{
-			"realm": conf.Realm,
-			"name":  conf.Name,
-		}),
+		log:         log,
 		config:      conf,
 		url:         url,
 		connectMode: connectMode,

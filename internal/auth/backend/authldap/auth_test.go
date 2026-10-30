@@ -100,3 +100,35 @@ func TestAuthFail(t *testing.T) {
 	assert.False(ok)
 	assert.Nil(actx)
 }
+
+func TestAuthEmptyPassword(t *testing.T) {
+	assert := assert.New(t)
+	actx, ok := testInst.Authenticate(nil, &auth.Credentials{
+		UserIdentifier: TestUser,
+		Secret:         nil,
+	})
+	assert.False(ok, "empty password must not result in an unauthenticated bind")
+	assert.Nil(actx)
+}
+
+func TestSearchFilterEscaping(t *testing.T) {
+	assert := assert.New(t)
+	inst, err := New(&testConf)
+	if !assert.NoError(err) {
+		return
+	}
+	tplCtx := map[string]interface{}{
+		"UserName": "alice)(sAMAccountName=*",
+		"User": EntryMap{
+			"dn": []string{"CN=Smith\\, John (ext),OU=Users,DC=example,DC=com"},
+		},
+	}
+	userFilter := inst.RenderTpl(UserSearchFilter, filterContext(tplCtx))
+	assert.Equal(`(&(objectClass=user)(sAMAccountName=alice\29\28sAMAccountName=\2a))`, userFilter)
+
+	groupFilter := inst.RenderTpl(GroupSearchFilter, filterContext(tplCtx))
+	assert.Equal(`(&(objectClass=group)(member=CN=Smith\5c, John \28ext\29,OU=Users,DC=example,DC=com))`, groupFilter)
+
+	// Other templates get the raw values
+	assert.Equal("alice)(sAMAccountName=*", inst.RenderTpl(UserBindDN, tplCtx))
+}
