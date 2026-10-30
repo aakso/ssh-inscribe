@@ -7,6 +7,10 @@ on:
       - master
   schedule:
     - cron: "5 5 * * 1/2"
+  # GitHub disables this workflow after 60 days without a commit. Re-enable it
+  # in the Actions tab, then run it by hand. The button exists only once this
+  # file is on the default branch; a dispatch does not count as activity.
+  workflow_dispatch:
 
 permissions:
   contents: read
