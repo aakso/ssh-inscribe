@@ -1,5 +1,7 @@
 package auth
 
+import "maps"
+
 const (
 	CredentialUserPassword = "user_password"
 	CredentialPin          = "pin"
@@ -20,7 +22,7 @@ type Authenticator interface {
 // For OAuth2 type authenticators
 type FederatedAuthenticator interface {
 	Authenticator
-	FederationCallback(data interface{}) error
+	FederationCallback(data any) error
 }
 
 type Authorizer interface {
@@ -44,7 +46,7 @@ type AuthContext struct {
 	Extensions       map[string]string
 	Authenticator    string
 	Authorizer       string
-	AuthMeta         map[string]interface{}
+	AuthMeta         map[string]any
 }
 
 func (ac *AuthContext) GetParent() *AuthContext {
@@ -85,26 +87,18 @@ func (ac *AuthContext) GetPrincipals() []string {
 func (ac *AuthContext) GetCriticalOptions() map[string]string {
 	r := map[string]string{}
 	if ac.Parent != nil {
-		for k, v := range ac.Parent.GetCriticalOptions() {
-			r[k] = v
-		}
+		maps.Copy(r, ac.Parent.GetCriticalOptions())
 	}
-	for k, v := range ac.CriticalOptions {
-		r[k] = v
-	}
+	maps.Copy(r, ac.CriticalOptions)
 	return r
 }
 
 func (ac *AuthContext) GetExtensions() map[string]string {
 	r := map[string]string{}
 	if ac.Parent != nil {
-		for k, v := range ac.Parent.GetExtensions() {
-			r[k] = v
-		}
+		maps.Copy(r, ac.Parent.GetExtensions())
 	}
-	for k, v := range ac.Extensions {
-		r[k] = v
-	}
+	maps.Copy(r, ac.Extensions)
 	return r
 }
 
@@ -124,16 +118,12 @@ func (ac *AuthContext) GetAuthenticators() []string {
 	return filterEmptyValues([]string{ac.Authenticator})
 }
 
-func (ac *AuthContext) GetAuthMeta() map[string]interface{} {
-	r := map[string]interface{}{}
+func (ac *AuthContext) GetAuthMeta() map[string]any {
+	r := map[string]any{}
 	if ac.Parent != nil {
-		for k, v := range ac.Parent.GetAuthMeta() {
-			r[k] = v
-		}
+		maps.Copy(r, ac.Parent.GetAuthMeta())
 	}
-	for k, v := range ac.AuthMeta {
-		r[k] = v
-	}
+	maps.Copy(r, ac.AuthMeta)
 	return r
 }
 
@@ -166,13 +156,12 @@ func (ac *AuthContext) GetMetaString(k string) string {
 		return ""
 	}
 	return ""
-
 }
 
 type Credentials struct {
 	UserIdentifier string `json:"userIdentifier"`
 	Secret         []byte
-	Meta           map[string]interface{}
+	Meta           map[string]any
 }
 
 func filterEmptyValues(sl []string) []string {

@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/Microsoft/go-winio"
-
-	"github.com/pkg/errors"
 )
 
 func DialAuthSock(name string) (net.Conn, error) {
@@ -28,12 +26,12 @@ func DialAuthSock(name string) (net.Conn, error) {
 	if strings.HasPrefix(name, `\\.\pipe`) { // Native ssh-agent
 		conn, err = winio.DialPipe(name, nil)
 		if err != nil {
-			return nil, errors.Wrap(err, "could not connect to ssh-agent")
+			return nil, fmt.Errorf("could not connect to ssh-agent: %w", err)
 		}
 	} else { // Cygwin
-		conn, err = net.Dial("unix", name)
+		conn, err = DialUnix(name)
 		if err != nil {
-			return nil, errors.Wrap(err, "could not connect to ssh-agent")
+			return nil, fmt.Errorf("could not connect to ssh-agent: %w", err)
 		}
 	}
 	return conn, nil
@@ -42,14 +40,20 @@ func DialAuthSock(name string) (net.Conn, error) {
 func LocalListen(name string) (net.Listener, error) {
 	cu, err := user.Current()
 	if err != nil {
-		return nil, errors.Wrap(err, "could not get current user")
+		return nil, fmt.Errorf("could not get current user: %w", err)
 	}
 	sddl := fmt.Sprintf("D:P(A;;GA;;;%s)", cu.Uid)
 	ln, err := winio.ListenPipe(name, &winio.PipeConfig{
 		SecurityDescriptor: sddl,
 	})
 	if err != nil {
-		return nil, errors.Wrap(err, "could not create a named pipe listener")
+		return nil, fmt.Errorf("could not create a named pipe listener: %w", err)
 	}
 	return ln, nil
+}
+
+// CheckSocketPath is a no-op on Windows, named pipes are created with an
+// explicit security descriptor.
+func CheckSocketPath(_ string) error {
+	return nil
 }

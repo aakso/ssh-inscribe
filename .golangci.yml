@@ -1,5 +1,71 @@
+version: "2"
+
 linters:
   enable:
+    - bodyclose
+    - copyloopvar
+    - dupword
+    - errname
+    - errorlint
     - gocritic
+    - gosec
+    # Also a default linter. Listed so vet is not a separate step; the Windows
+    # lint run covers GOOS=windows. Defaults match go vet's analyzers.
+    - govet
+    - intrange
+    - misspell
+    - modernize
+    - nakedret
+    - noctx
+    - nolintlint
+    - perfsprint
     - prealloc
+    - predeclared
+    - revive
+    - thelper
     - unconvert
+    - unparam
+    - usestdlibvars
+    - wastedassign
+    - whitespace
+  settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      # revive defaults, without "exported": all packages are internal and
+      # doc comments are not required on every exported identifier.
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: dot-imports
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: var-declaration
+        - name: var-naming
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/aakso/ssh-inscribe)

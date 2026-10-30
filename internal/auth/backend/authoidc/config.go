@@ -12,7 +12,7 @@ type Config struct {
 	Realm string
 
 	Timeout                int      `yaml:"timeout"`
-	ClientId               string   `yaml:"clientID"`
+	ClientID               string   `yaml:"clientID"`
 	ClientSecret           string   `yaml:"clientSecret"`
 	Scopes                 []string `yaml:"scopes"`
 	AuthFlowTimeout        int      `yaml:"authFlowTimeout"`
@@ -22,17 +22,22 @@ type Config struct {
 
 	ValueMappings TokenValueMapping `yaml:"valueMappings"`
 
+	// RequireVerifiedEmail rejects logins where the email claim is mapped
+	// to the subject name or principals but email_verified is not true.
+	RequireVerifiedEmail bool `yaml:"requireVerifiedEmail"`
+
 	Principals      []string
 	CriticalOptions map[string]string `yaml:"criticalOptions"`
 	Extensions      map[string]string
 }
 
-var Defaults *Config = &Config{
+var Defaults = &Config{
 	Name:                   DefaultName,
 	Realm:                  DefaultRealm,
 	Scopes:                 []string{"openid", "email", "profile"},
 	AuthFlowTimeout:        240,
 	MaxPendingAuthAttempts: 1000,
+	RequireVerifiedEmail:   true,
 
 	ValueMappings: TokenValueMapping{
 		SubjectNameField:    "name",

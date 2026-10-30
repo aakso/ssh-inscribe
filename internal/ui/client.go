@@ -2,9 +2,11 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -18,25 +20,22 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/chzyer/readline"
-	"golang.org/x/crypto/ed25519"
-
-	"github.com/labstack/gommon/log"
-
-	"github.com/aakso/ssh-inscribe/internal/globals"
-	"github.com/aakso/ssh-inscribe/internal/util"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ScaleFT/sshkeys"
 	"github.com/blang/semver/v4"
-	"github.com/pkg/errors"
+	"github.com/chzyer/readline"
+	"github.com/go-resty/resty/v2"
 	"github.com/skratchdot/open-golang/open"
+	"golang.org/x/crypto/ed25519"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
-	"gopkg.in/resty.v1"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
+	"github.com/aakso/ssh-inscribe/internal/globals"
 	"github.com/aakso/ssh-inscribe/internal/server/signapi/objects"
+	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
 const (
@@ -44,7 +43,7 @@ const (
 	CredentialTypePassword = "password"
 	CredentialTypePin      = "pin"
 
-	CurrentApiVersion = "v1"
+	CurrentAPIVersion = "v1"
 
 	// AgentComment is a comment to use for keys on agent.
 	AgentComment = "ssh-inscribe managed"
@@ -58,20 +57,19 @@ const spinner = `\|/-`
 
 type ignoreRedirects struct{}
 
-func (ir *ignoreRedirects) Apply(req *http.Request, via []*http.Request) error {
+func (ir *ignoreRedirects) Apply(_ *http.Request, _ []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
 type Client struct {
 	Config          *Config
 	rest            *resty.Client
-	restSRV         *resty.SRVRecord
 	agentClient     agent.Agent
 	agentConn       net.Conn
 	credentialInput func(name, realm, credentialType, def string) ([]byte, error)
 
 	ca             ssh.PublicKey
-	userPrivateKey interface{}
+	userPrivateKey any
 	userCerts      []*ssh.Certificate
 	signerToken    []byte
 	serverVersion  semver.Version
@@ -86,13 +84,13 @@ func (c *Client) getCredential(name, realm, credentialType, def string) ([]byte,
 
 func (c *Client) AddCA() error {
 	if err := c.initREST(); err != nil {
-		return errors.Wrap(err, "could not add ca")
+		return fmt.Errorf("could not add ca: %w", err)
 	}
 	if err := c.checkVersion(); err != nil {
-		return errors.Wrap(err, "could not add ca")
+		return fmt.Errorf("could not add ca: %w", err)
 	}
 	if err := c.authenticate(); err != nil {
-		return errors.Wrap(err, "could not add ca")
+		return fmt.Errorf("could not add ca: %w", err)
 	}
 	if c.Config.CAChallenge {
 		return c.caChallenge()
@@ -102,36 +100,36 @@ func (c *Client) AddCA() error {
 
 func (c *Client) ChallengeResponse() error {
 	if err := c.initREST(); err != nil {
-		return errors.Wrap(err, "could not add ca")
+		return fmt.Errorf("could not add ca: %w", err)
 	}
 	if err := c.checkVersion(); err != nil {
-		return errors.Wrap(err, "could not add ca")
+		return fmt.Errorf("could not add ca: %w", err)
 	}
 	if err := c.authenticate(); err != nil {
-		return errors.Wrap(err, "could not add ca")
+		return fmt.Errorf("could not add ca: %w", err)
 	}
 	return c.sendChallengeResponse()
 }
 
 func (c *Client) GetCA() (ssh.PublicKey, error) {
 	if err := c.initREST(); err != nil {
-		return nil, errors.Wrap(err, "could not get ca")
+		return nil, fmt.Errorf("could not get ca: %w", err)
 	}
 	if err := c.checkVersion(); err != nil {
-		return nil, errors.Wrap(err, "could not get ca")
+		return nil, fmt.Errorf("could not get ca: %w", err)
 	}
 	if err := c.discoverCA(); err != nil {
-		return nil, errors.Wrap(err, "could not get ca")
+		return nil, fmt.Errorf("could not get ca: %w", err)
 	}
 	return c.ca, nil
 }
 
 func (c *Client) GetServerVersion() (semver.Version, error) {
 	if err := c.initREST(); err != nil {
-		return semver.Version{}, errors.Wrap(err, "could not get server version")
+		return semver.Version{}, fmt.Errorf("could not get server version: %w", err)
 	}
 	if err := c.discoverServerVersion(); err != nil {
-		return semver.Version{}, errors.Wrap(err, "could not get server version")
+		return semver.Version{}, fmt.Errorf("could not get server version: %w", err)
 	}
 	if c.serverVersion.EQ(semver.Version{}) {
 		return semver.Version{}, errors.New("no server version available")
@@ -141,27 +139,27 @@ func (c *Client) GetServerVersion() (semver.Version, error) {
 
 func (c *Client) GetAuthenticators() ([]objects.DiscoverResult, error) {
 	if err := c.initREST(); err != nil {
-		return nil, errors.Wrap(err, "could not get ca")
+		return nil, fmt.Errorf("could not get ca: %w", err)
 	}
 	return c.discoverAuthenticators()
 }
 
 func (c *Client) Logout() error {
 	if err := c.initREST(); err != nil {
-		return errors.Wrap(err, "could not logout")
+		return fmt.Errorf("could not logout: %w", err)
 	}
 	if err := c.checkVersion(); err != nil {
-		return errors.Wrap(err, "could not logout")
+		return fmt.Errorf("could not logout: %w", err)
 	}
 	if err := c.discoverCA(); err != nil {
-		return errors.Wrap(err, "could not logout")
+		return fmt.Errorf("could not logout: %w", err)
 	}
 	if c.Config.UseAgent {
 		if err := c.connectAgent(); err != nil {
-			return errors.Wrap(err, "could not logout")
+			return fmt.Errorf("could not logout: %w", err)
 		}
 		if err := c.deleteCertsFromAgent(); err != nil {
-			return errors.Wrap(err, "could not logout")
+			return fmt.Errorf("could not logout: %w", err)
 		}
 	}
 	return nil
@@ -169,20 +167,20 @@ func (c *Client) Logout() error {
 
 func (c *Client) Login() error {
 	if err := c.initREST(); err != nil {
-		return errors.Wrap(err, "could not login")
+		return fmt.Errorf("could not login: %w", err)
 	}
 	if err := c.checkVersion(); err != nil {
-		return errors.Wrap(err, "could not login")
+		return fmt.Errorf("could not login: %w", err)
 	}
 	if err := c.discoverCA(); err != nil {
-		return errors.Wrap(err, "could not login")
+		return fmt.Errorf("could not login: %w", err)
 	}
 	if c.Config.UseAgent {
 		if err := c.connectAgent(); err != nil {
-			return errors.Wrap(err, "could not login")
+			return fmt.Errorf("could not login: %w", err)
 		}
 		if err := c.discoverCertFromAgent(); err != nil {
-			return errors.Wrap(err, "could not login")
+			return fmt.Errorf("could not login: %w", err)
 		}
 		if !c.Config.AlwaysRenew && len(c.userCerts) > 0 {
 			Log.Debug("certificate found on agent and already valid")
@@ -191,7 +189,7 @@ func (c *Client) Login() error {
 	}
 	if c.Config.IdentityFile != "" && !c.Config.GenerateKeypair {
 		if err := c.discoverIdentityFile(); err != nil {
-			return errors.Wrap(err, "could not login")
+			return fmt.Errorf("could not login: %w", err)
 		}
 		if !c.Config.AlwaysRenew && c.userCerts != nil {
 			Log.Debug("certificate found from file and already valid")
@@ -201,7 +199,7 @@ func (c *Client) Login() error {
 	// Generate ad-hoc keypair in case no private key is provided
 	if c.Config.GenerateKeypair && c.userPrivateKey == nil {
 		if err := c.generate(); err != nil {
-			return errors.Wrap(err, "could not login")
+			return fmt.Errorf("could not login: %w", err)
 		}
 	}
 	if c.userPrivateKey == nil {
@@ -209,19 +207,19 @@ func (c *Client) Login() error {
 	}
 	c.userCerts = nil
 	if err := c.authenticate(); err != nil {
-		return errors.Wrap(err, "could not login")
+		return fmt.Errorf("could not login: %w", err)
 	}
 	if err := c.sign(); err != nil {
-		return errors.Wrap(err, "could not login")
+		return fmt.Errorf("could not login: %w", err)
 	}
 	if c.Config.UseAgent {
 		if err := c.storeInAgent(); err != nil {
-			return errors.Wrap(err, "could not store certificate to an agent")
+			return fmt.Errorf("could not store certificate to an agent: %w", err)
 		}
 	}
 	if c.Config.IdentityFile != "" && c.Config.WriteCert {
 		if err := c.storeInFile(); err != nil {
-			return errors.Wrap(err, "could not store certificate to a file")
+			return fmt.Errorf("could not store certificate to a file: %w", err)
 		}
 	}
 	if !c.Config.UseAgent && !c.Config.WriteCert {
@@ -239,7 +237,9 @@ func (c *Client) Login() error {
 			} else {
 				fmt.Println("CERT DETAILS:")
 			}
-			c.printCertificate(cert)
+			if err := c.printCertificate(os.Stdout, cert); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -266,12 +266,12 @@ func (c *Client) addCAKey() error {
 	} else {
 		content, err = os.ReadFile(c.Config.CAKeyFile)
 		if err != nil {
-			return errors.Wrap(err, "could not open ca key file")
+			return fmt.Errorf("could not open ca key file: %w", err)
 		}
 	}
 	key, err := c.parsePrivateKey(content, "CA private key")
 	if err != nil {
-		return errors.Wrap(err, "could not parse ca key")
+		return fmt.Errorf("could not parse ca key: %w", err)
 	}
 	opts := &sshkeys.MarshalOptions{}
 	switch key.(type) {
@@ -282,7 +282,7 @@ func (c *Client) addCAKey() error {
 	}
 	content, err = sshkeys.Marshal(key, opts)
 	if err != nil {
-		return errors.Wrap(err, "could not marshal ca key")
+		return fmt.Errorf("could not marshal ca key: %w", err)
 	}
 	log.Debug("sending ca key to the server")
 	res, err := c.newReq().
@@ -290,10 +290,10 @@ func (c *Client) addCAKey() error {
 		SetBody(content).
 		Post(c.urlFor("ca"))
 	if err != nil {
-		return errors.Wrap(err, "could not send key")
+		return fmt.Errorf("could not send key: %w", err)
 	}
 	if res.StatusCode() != http.StatusAccepted {
-		return errors.Errorf("could not send key, got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("could not send key, got code %d and message: %s", res.StatusCode(), res.Body())
 	}
 	log.Debug("sent ca key to the server")
 	return nil
@@ -319,20 +319,19 @@ func (c *Client) caChallenge() error {
 	} else {
 		content, err = os.ReadFile(c.Config.CAKeyFile)
 		if err != nil {
-			return errors.Wrap(err, "could not open ca key file")
+			return fmt.Errorf("could not open ca key file: %w", err)
 		}
 	}
 	log.Debug("sending ca key to the server to initiate challenge")
-	log.Debug(string(content))
 	res, err := c.newReq().
 		SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken)).
 		SetBody(content).
 		Post(c.urlFor("ca") + "?init_challenge=true")
 	if err != nil {
-		return errors.Wrap(err, "could not send key")
+		return fmt.Errorf("could not send key: %w", err)
 	}
 	if res.StatusCode() != http.StatusAccepted {
-		return errors.Errorf("could not send key, got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("could not send key, got code %d and message: %s", res.StatusCode(), res.Body())
 	}
 	log.Debug("initiated a CA challenge")
 	fmt.Printf("Challenge:\n%v\n", string(res.Body()))
@@ -356,10 +355,10 @@ func (c *Client) sendChallengeResponse() error {
 		SetBasicAuth("", string(response)).
 		Post(c.urlFor("ca/response"))
 	if err != nil {
-		return errors.Wrap(err, "could not send challenge-response")
+		return fmt.Errorf("could not send challenge-response: %w", err)
 	}
 	if res.StatusCode() != http.StatusOK {
-		return errors.Errorf("could not send challenge-response, got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("could not send challenge-response, got code %d and message: %s", res.StatusCode(), res.Body())
 	}
 	log.Debug("sent challenge-response to the server")
 	return nil
@@ -368,7 +367,7 @@ func (c *Client) sendChallengeResponse() error {
 // generate generates an ad-hoc keypair.
 func (c *Client) generate() error {
 	var (
-		key interface{}
+		key any
 		err error
 	)
 	log := Log.WithField("action", "generate").
@@ -382,13 +381,13 @@ func (c *Client) generate() error {
 		log = log.WithField("size", size)
 		key, err = rsa.GenerateKey(rand.Reader, size)
 		if err != nil {
-			return errors.Wrap(err, "could not generate RSA key")
+			return fmt.Errorf("could not generate RSA key: %w", err)
 		}
 	case "ed25519":
 		log = log.WithField("size", ed25519.PrivateKeySize)
 		_, edKey, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
-			return errors.Wrap(err, "could not generate RSA key")
+			return fmt.Errorf("could not generate RSA key: %w", err)
 		}
 		// Workaround: store ed25519 as pointer to slice as that is what
 		// golang.org/x/crypto/ssh parsing functions return
@@ -428,7 +427,7 @@ func (c *Client) storeInAgent() error {
 		// add time constraint to it
 		keyInAgent := i > 0
 		if i == 0 {
-			err = iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
+			err = iterAgentKeys(c.agentClient, func(key ssh.PublicKey, _ string) error {
 				if bytes.Equal(key.Marshal(), cert.Key.Marshal()) {
 					log.Debug("private key already in agent")
 					keyInAgent = true
@@ -436,14 +435,11 @@ func (c *Client) storeInAgent() error {
 				return nil
 			})
 			if err != nil {
-				return errors.Wrap(err, "could not get agent keys")
+				return fmt.Errorf("could not get agent keys: %w", err)
 			}
 		}
 
-		var lifetime uint32
-		if cert.ValidBefore != 0 {
-			lifetime = uint32(time.Until(time.Unix(int64(cert.ValidBefore), 0)).Seconds())
-		}
+		lifetime := util.AgentLifetime(cert, time.Now())
 		addedKey := agent.AddedKey{
 			PrivateKey:       c.userPrivateKey,
 			Certificate:      cert,
@@ -458,7 +454,7 @@ func (c *Client) storeInAgent() error {
 				microsoftSSHAgent = true
 			}
 			if err != nil {
-				return errors.Wrap(err, "could not add to agent")
+				return fmt.Errorf("could not add to agent: %w", err)
 			}
 		}
 		log.WithField("keyid", cert.KeyId).
@@ -478,7 +474,7 @@ func (c *Client) storeInAgent() error {
 					err = c.windowsStoreInAgentWorkaround(&addedKey)
 				}
 				if err != nil {
-					return errors.Wrap(err, "could not add to agent")
+					return fmt.Errorf("could not add to agent: %w", err)
 				}
 			}
 			log.WithField("lifetime_secs", addedKey.LifetimeSecs).
@@ -494,6 +490,12 @@ func (c *Client) storeInFile() error {
 	log := Log.WithField("action", "storeInFile")
 	// If we have been requested to generate a keypair, save it
 	if c.Config.GenerateKeypair {
+		closeFile := func(f *os.File) {
+			if err := f.Close(); err != nil {
+				log.WithError(err).Warn("failed to close file")
+			}
+		}
+
 		privFile := c.Config.IdentityFile
 		if abs, _ := filepath.Abs(privFile); abs != "" {
 			privFile = abs
@@ -502,9 +504,14 @@ func (c *Client) storeInFile() error {
 		log.WithField("file", privFile).Debug("saving to file")
 		fhPriv, err := os.OpenFile(c.Config.IdentityFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 		if err != nil {
-			return errors.Wrap(err, "could not save to file")
+			return fmt.Errorf("could not save to file: %w", err)
 		}
-		defer fhPriv.Close()
+		// O_CREATE mode does not apply to an existing file
+		if err := fhPriv.Chmod(0o600); err != nil {
+			closeFile(fhPriv)
+			return fmt.Errorf("could not set private key file permissions: %w", err)
+		}
+		defer closeFile(fhPriv)
 		opts := &sshkeys.MarshalOptions{}
 		switch c.userPrivateKey.(type) {
 		case *ed25519.PrivateKey:
@@ -514,10 +521,10 @@ func (c *Client) storeInFile() error {
 		}
 		content, err := sshkeys.Marshal(c.userPrivateKey, opts)
 		if err != nil {
-			return errors.Wrap(err, "could not marshal private key")
+			return fmt.Errorf("could not marshal private key: %w", err)
 		}
 		if _, err := fhPriv.Write(content); err != nil {
-			return errors.Wrap(err, "could not write private key")
+			return fmt.Errorf("could not write private key: %w", err)
 		}
 		fmt.Println(privFile)
 		log.WithField("file", privFile).Debug("saved to file")
@@ -528,17 +535,17 @@ func (c *Client) storeInFile() error {
 			pubFile = abs
 		}
 		log.WithField("file", pubFile).Debug("saving to file")
-		fhPub, err := os.Create(pubFile)
+		fhPub, err := os.Create(pubFile) //nolint:gosec // path derived from the user supplied identity file
 		if err != nil {
-			return errors.Wrap(err, "could not save to file")
+			return fmt.Errorf("could not save to file: %w", err)
 		}
-		defer fhPub.Close()
+		defer closeFile(fhPub)
 		signer, err := ssh.NewSignerFromKey(c.userPrivateKey)
 		if err != nil {
-			return errors.Wrap(err, "unexpected error")
+			return fmt.Errorf("unexpected error: %w", err)
 		}
 		if _, err := fhPub.Write(ssh.MarshalAuthorizedKey(signer.PublicKey())); err != nil {
-			return errors.Wrap(err, "could not write public key")
+			return fmt.Errorf("could not write public key: %w", err)
 		}
 		fmt.Println(pubFile)
 		log.WithField("file", pubFile).Debug("saved to file")
@@ -562,13 +569,13 @@ func (c *Client) storeInFile() error {
 			certFile = abs
 		}
 		log.WithField("file", certFile).Debug("saving to file")
-		fh, err := os.Create(certFile)
+		fh, err := os.Create(certFile) //nolint:gosec // path derived from the user supplied identity file
 		if err != nil {
-			return errors.Wrap(err, "could not save to file")
+			return fmt.Errorf("could not save to file: %w", err)
 		}
 		createdFileHandles = append(createdFileHandles, fh)
 		if _, err := fh.Write(ssh.MarshalAuthorizedKey(cert)); err != nil {
-			return errors.Wrap(err, "could not save to file")
+			return fmt.Errorf("could not save to file: %w", err)
 		}
 		fmt.Println(certFile)
 		log.WithField("file", certFile).Debug("saved to file")
@@ -583,7 +590,7 @@ func (c *Client) sign() error {
 	log.Debug("requesting certificate")
 	signer, err := ssh.NewSignerFromKey(c.userPrivateKey)
 	if err != nil {
-		return errors.Wrap(err, "unexpected error")
+		return fmt.Errorf("unexpected error: %w", err)
 	}
 	req := c.newReq().
 		SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken)).
@@ -609,10 +616,10 @@ func (c *Client) sign() error {
 
 	res, err := req.Post(c.urlFor("sign"))
 	if err != nil {
-		return errors.Wrap(err, "could not sign")
+		return fmt.Errorf("could not sign: %w", err)
 	}
 	if res.StatusCode() != http.StatusOK {
-		return errors.Errorf("could not sign got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("could not sign got code %d and message: %s", res.StatusCode(), res.Body())
 	}
 
 	rawCerts := res.Body()
@@ -620,11 +627,11 @@ func (c *Client) sign() error {
 		var pubKey ssh.PublicKey
 		pubKey, _, _, rawCerts, err = ssh.ParseAuthorizedKey(rawCerts)
 		if err != nil {
-			return errors.Wrap(err, "cannot parse ssh public key")
+			return fmt.Errorf("cannot parse ssh public key: %w", err)
 		}
 		cert, _ := pubKey.(*ssh.Certificate)
 		if cert == nil {
-			return errors.Errorf("could not parse certificate. Unexpected type %T", pubKey)
+			return fmt.Errorf("could not parse certificate. Unexpected type %T", pubKey)
 		}
 		c.userCerts = append(c.userCerts, cert)
 		log.WithField("keyid", cert.KeyId).Debug("certificate received")
@@ -644,7 +651,7 @@ func (c *Client) authenticateFederated(authName, authRealm string) error {
 		}
 		res, err := req.Post(c.urlFor("auth/" + authName))
 		if err != nil {
-			return errors.Wrap(err, "could not authenticate")
+			return fmt.Errorf("could not authenticate: %w", err)
 		}
 		switch res.StatusCode() {
 		case http.StatusSeeOther:
@@ -667,7 +674,7 @@ func (c *Client) authenticateFederated(authName, authRealm string) error {
 		case http.StatusUnauthorized:
 			return errors.New("authentication failed")
 		default:
-			return errors.Errorf("unknown federated auth response: %d", res.StatusCode())
+			return fmt.Errorf("unknown federated auth response: %d", res.StatusCode())
 		}
 	}
 	return errors.New("could not authenticate")
@@ -680,7 +687,7 @@ func (c *Client) discoverAuthenticators() ([]objects.DiscoverResult, error) {
 		SetResult([]objects.DiscoverResult{}).
 		Get(c.urlFor("auth"))
 	if err != nil {
-		return nil, errors.Wrap(err, "could not discover authenticators")
+		return nil, fmt.Errorf("could not discover authenticators: %w", err)
 	}
 	discoverResult, _ := res.Result().(*[]objects.DiscoverResult)
 	if discoverResult == nil {
@@ -715,11 +722,11 @@ func (c *Client) authenticate() error {
 	switch {
 	case len(c.Config.LoginAuthEndpoints) > 0:
 		for _, v := range c.Config.LoginAuthEndpoints {
-			if au, ok := availableAuthenticators[v]; !ok {
-				return errors.Errorf("unknown auth endpoint name: %s", v)
-			} else {
-				finalAuthenticators = append(finalAuthenticators, au)
+			au, ok := availableAuthenticators[v]
+			if !ok {
+				return fmt.Errorf("unknown auth endpoint name: %s", v)
 			}
+			finalAuthenticators = append(finalAuthenticators, au)
 		}
 	case len(defaultAuthenticators) > 0:
 		finalAuthenticators = defaultAuthenticators
@@ -765,7 +772,7 @@ outer:
 				}
 				continue outer
 			default:
-				return errors.Errorf("unknown credential type %s", au.AuthenticatorCredentialType)
+				return fmt.Errorf("unknown credential type %s", au.AuthenticatorCredentialType)
 			}
 			log.WithField("authenticator", au.AuthenticatorName).Debug("authenticating")
 			// Send Credentials
@@ -775,7 +782,7 @@ outer:
 			}
 			res, err := req.Post(c.urlFor("auth/" + au.AuthenticatorName))
 			if err != nil {
-				return errors.Wrap(err, "could not authenticate")
+				return fmt.Errorf("could not authenticate: %w", err)
 			}
 			if res.StatusCode() == http.StatusOK {
 				c.signerToken = res.Body()
@@ -790,35 +797,25 @@ outer:
 }
 
 // parsePrivateKey parses the private key and decrypts it if necessary.
-func (c *Client) parsePrivateKey(raw []byte, desc string) (interface{}, error) {
-	var (
-		secret []byte
-		key    interface{}
-		err    error
-	)
+func (c *Client) parsePrivateKey(raw []byte, desc string) (any, error) {
+	log := Log.WithField("action", "parsePrivateKey")
+	var secret []byte
 	haveSecret := false
-outer:
 	for {
-		key, err = sshkeys.ParseEncryptedRawPrivateKey(raw, secret)
-		switch err := err.(type) {
-		case *ssh.PassphraseMissingError:
-			if haveSecret {
-				return nil, err
-			}
-			log.Debug("encrypted identity file")
-			var err2 error
-			if secret, err2 = c.getCredential("private key", desc, CredentialTypePassword, ""); err2 != nil {
-				return nil, err2
-			}
-			haveSecret = true
-		default:
-			if err == nil {
-				break outer
-			}
+		key, err := sshkeys.ParseEncryptedRawPrivateKey(raw, secret)
+		if err == nil {
+			return key, nil
+		}
+		var missing *ssh.PassphraseMissingError
+		if !errors.As(err, &missing) || haveSecret {
 			return nil, err
 		}
+		log.Debug("encrypted private key")
+		if secret, err = c.getCredential("private key", desc, CredentialTypePassword, ""); err != nil {
+			return nil, err
+		}
+		haveSecret = true
 	}
-	return key, nil
 }
 
 // discoverIdentityFile discovers users private key and certificate from file.
@@ -827,34 +824,34 @@ func (c *Client) discoverIdentityFile() error {
 	log.Debug("reading identity file")
 	content, err := os.ReadFile(c.Config.IdentityFile)
 	if err != nil {
-		return errors.Wrap(err, "could not open identity file")
+		return fmt.Errorf("could not open identity file: %w", err)
 	}
 	key, err := c.parsePrivateKey(content, c.Config.IdentityFile)
 	if err != nil {
-		return errors.Wrap(err, "could not parse private key")
+		return fmt.Errorf("could not parse private key: %w", err)
 	}
 	c.userPrivateKey = key
 	log.Debug("parsed identity file")
 
 	// Certificate
 	certFiles := []string{
-		fmt.Sprintf("%s-cert.pub", c.Config.IdentityFile),
-		fmt.Sprintf("%s-cert1.pub", c.Config.IdentityFile),
+		c.Config.IdentityFile + "-cert.pub",
+		c.Config.IdentityFile + "-cert1.pub",
 	}
 	for _, certFile := range certFiles {
 		log := log.WithField("file", certFile)
-		content, err = os.ReadFile(certFile)
+		content, err = os.ReadFile(certFile) //nolint:gosec // path derived from the user supplied identity file
 		if os.IsNotExist(err) {
 			log.Debug("no certificate file found")
 			continue
 		} else if err != nil {
-			return errors.Wrap(err, "could not open certificate file")
+			return fmt.Errorf("could not open certificate file: %w", err)
 		}
 		log.Debug("found certificate")
 
 		parsed, _, _, _, err := ssh.ParseAuthorizedKey(content)
 		if err != nil {
-			return errors.Wrapf(err, "could not parse certificate file %q", certFile)
+			return fmt.Errorf("could not parse certificate file %q: %w", certFile, err)
 		}
 		cert, _ := parsed.(*ssh.Certificate)
 		if cert == nil {
@@ -880,14 +877,14 @@ func (c *Client) discoverCA() error {
 	log.Debug("discovering ca")
 	res, err := c.newReq().Get(c.urlFor("ca"))
 	if err != nil {
-		return errors.Wrap(err, "could not discover CA")
+		return fmt.Errorf("could not discover CA: %w", err)
 	}
 	if res.StatusCode() != http.StatusOK {
-		return errors.Errorf("could not discover CA, got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("could not discover CA, got code %d and message: %s", res.StatusCode(), res.Body())
 	}
 	key, _, _, _, err := ssh.ParseAuthorizedKey(res.Body())
 	if err != nil {
-		return errors.Wrap(err, "could not parse CA key")
+		return fmt.Errorf("could not parse CA key: %w", err)
 	}
 	log.WithField("fingerprint", ssh.FingerprintSHA256(key)).Debug("discovered ca")
 	c.ca = key
@@ -899,7 +896,7 @@ func (c *Client) discoverServerVersion() error {
 	log.Debug("query server version")
 	res, err := c.newReq().Get("/version")
 	if err != nil {
-		return errors.Wrap(err, "could not get server version")
+		return fmt.Errorf("could not get server version: %w", err)
 	}
 	if res.StatusCode() != http.StatusOK {
 		log.Debug("no version endpoint available, ignoring")
@@ -907,7 +904,7 @@ func (c *Client) discoverServerVersion() error {
 	}
 	ver, err := semver.Parse(string(res.Body()))
 	if err != nil {
-		return errors.Wrap(err, "could not parse server version")
+		return fmt.Errorf("could not parse server version: %w", err)
 	}
 	c.serverVersion = ver
 	return nil
@@ -918,7 +915,7 @@ func (c *Client) checkVersion() error {
 	log = log.WithField("client_version", globals.Version())
 	if c.serverVersion.EQ(semver.Version{}) {
 		if err := c.discoverServerVersion(); err != nil {
-			return errors.Wrap(err, "could not validate server version")
+			return fmt.Errorf("could not validate server version: %w", err)
 		}
 	} else {
 		return nil
@@ -954,13 +951,13 @@ func (c *Client) checkVersion() error {
 func (c *Client) connectAgent() error {
 	conn, err := util.DialAuthSock("")
 	if err != nil {
-		return errors.Wrap(err, "could not connect to ssh-agent")
+		return fmt.Errorf("could not connect to ssh-agent: %w", err)
 	}
 	Log.WithField("socket", conn.RemoteAddr()).Debug("connecting to ssh-agent")
 	c.agentConn = conn
 	agentClient := agent.NewClient(c.agentConn)
 	if _, err := agentClient.List(); err != nil {
-		return errors.Wrap(err, "could not connect to ssh-agent")
+		return fmt.Errorf("could not connect to ssh-agent: %w", err)
 	}
 	c.agentClient = agentClient
 	Log.WithField("socket", conn.RemoteAddr()).Debug("connected to ssh-agent")
@@ -971,7 +968,7 @@ func (c *Client) connectAgent() error {
 func (c *Client) discoverCertFromAgent() error {
 	log := Log.WithField("action", "discoverCertFromAgent")
 	log.Debug("discovering certificates from the agent")
-	err := iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
+	err := iterAgentKeys(c.agentClient, func(key ssh.PublicKey, _ string) error {
 		cert, _ := key.(*ssh.Certificate)
 		if cert == nil {
 			return nil
@@ -999,7 +996,7 @@ func (c *Client) discoverCertFromAgent() error {
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "could not discover certificate")
+		return fmt.Errorf("could not discover certificate: %w", err)
 	}
 	return nil
 }
@@ -1010,7 +1007,7 @@ func (c *Client) deleteCertsFromAgent() error {
 
 	var removeCerts []*ssh.Certificate
 	keyReferences := make(map[string]int)
-	err := iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
+	err := iterAgentKeys(c.agentClient, func(key ssh.PublicKey, _ string) error {
 		cert, _ := key.(*ssh.Certificate)
 		if cert == nil {
 			return nil
@@ -1031,7 +1028,7 @@ func (c *Client) deleteCertsFromAgent() error {
 		return nil
 	})
 	if err != nil {
-		return errors.Wrap(err, "could not query certs")
+		return fmt.Errorf("could not query certs: %w", err)
 	}
 
 	if len(removeCerts) == 0 {
@@ -1042,7 +1039,7 @@ func (c *Client) deleteCertsFromAgent() error {
 		log.WithField("keyid", cert.KeyId).
 			WithField("signature_format", cert.Signature.Format).Debug("removing certificate")
 		if err := c.agentClient.Remove(cert); err != nil {
-			return errors.Wrap(err, "could not remove from agent")
+			return fmt.Errorf("could not remove from agent: %w", err)
 		}
 
 		// Also remove key for the certificate if it is managed by us and has no referencing certs
@@ -1063,7 +1060,7 @@ func (c *Client) deleteCertsFromAgent() error {
 			return nil
 		})
 		if err != nil {
-			return errors.Wrap(err, "could not remove associated key")
+			return fmt.Errorf("could not remove associated key: %w", err)
 		}
 	}
 	return nil
@@ -1071,14 +1068,14 @@ func (c *Client) deleteCertsFromAgent() error {
 
 func (c *Client) checkReady() error {
 	log := Log.WithField("action", "checkReady").
-		WithField("target", c.rest.HostURL)
+		WithField("target", c.rest.BaseURL)
 	log.Debug("query server readiness")
 	res, err := c.newReq().Get(c.urlFor("ready"))
 	if err != nil {
-		return errors.Wrap(err, "could not check readiness")
+		return fmt.Errorf("could not check readiness: %w", err)
 	}
 	if res.StatusCode() != http.StatusNoContent {
-		return errors.Errorf("got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("got code %d and message: %s", res.StatusCode(), res.Body())
 	}
 	return nil
 }
@@ -1090,25 +1087,24 @@ func (c *Client) initREST() error {
 	}
 	parsed, err := url.Parse(c.Config.URL)
 	if err != nil {
-		return errors.Wrap(err, "cannot parse url")
+		return fmt.Errorf("cannot parse url: %w", err)
 	}
 	if c.Config.Retries < 0 {
 		return errors.New("retries cannot be negative")
 	}
 	rest := resty.New().
-		SetRESTMode().
 		SetDisableWarn(true).
-		SetHostURL(c.Config.URL).
+		SetBaseURL(c.Config.URL).
 		SetTimeout(c.Config.Timeout).
 		SetRetryCount(c.Config.Retries).
-		SetLogger(io.Discard).
 		SetRedirectPolicy(&ignoreRedirects{})
 
 	if parsed.Scheme == "https" {
 		rest.SetScheme("https")
 		rest.SetTLSClientConfig(&tls.Config{
 			ServerName:         parsed.Hostname(),
-			InsecureSkipVerify: c.Config.Insecure,
+			InsecureSkipVerify: c.Config.Insecure, //nolint:gosec // explicit user opt-in
+			MinVersion:         tls.VersionTLS12,
 		})
 	} else {
 		rest.SetScheme("http")
@@ -1118,18 +1114,24 @@ func (c *Client) initREST() error {
 	rest.Header.Set("User-Agent", globals.ClientUserAgent)
 	rest.Header.Set("X-Version", globals.Version().String())
 	if c.Config.Debug {
+		// resty's default logger writes to stderr
 		rest.SetDebug(true).
-			SetLogger(os.Stderr)
+			OnRequestLog(redactRequestLog).
+			OnResponseLog(redactResponseLog)
+	} else {
+		rest.SetLogger(discardLogger{})
 	}
 	c.rest = rest
 
 	// Let's not use Resty's SRV mechanism as we need to be connected to the same server for
 	// the duration of the session to make federated auth work.
-	if name, addrs, err := net.LookupSRV(parsed.Scheme, "tcp", parsed.Hostname()); err == nil {
+	srvCtx, cancel := context.WithTimeout(context.Background(), c.Config.Timeout)
+	defer cancel()
+	if name, addrs, err := net.DefaultResolver.LookupSRV(srvCtx, parsed.Scheme, "tcp", parsed.Hostname()); err == nil {
 		log.WithField("SRV", name).Debug("discovering with SRV records")
 		for _, addr := range addrs {
 			parsed.Host = fmt.Sprintf("%s:%d", addr.Target, addr.Port)
-			rest.SetHostURL(parsed.String())
+			rest.SetBaseURL(parsed.String())
 			log := log.WithField("target", parsed.String())
 			if err := c.checkReady(); err != nil {
 				log.WithError(err).Debug("skipping")
@@ -1142,66 +1144,114 @@ func (c *Client) initREST() error {
 	return nil
 }
 
-func (c *Client) printCertificate(cert *ssh.Certificate) {
-	validFrom := time.Unix(int64(cert.ValidAfter), 0)
-	validTo := time.Unix(int64(cert.ValidBefore), 0)
-	fmt.Printf("%20s: %s (%s)", "Fingerprint",
+func (c *Client) printCertificate(w io.Writer, cert *ssh.Certificate) error {
+	var b strings.Builder
+	validFrom := util.CertTime(cert.ValidAfter)
+	validTo := util.CertTime(cert.ValidBefore)
+	fmt.Fprintf(&b, "%20s: %s (%s)", "Fingerprint",
 		ssh.FingerprintSHA256(cert.Key),
 		ssh.FingerprintLegacyMD5(cert.Key))
-	fmt.Printf("\n%20s: %s (%s)", "CA Fingerprint",
+	fmt.Fprintf(&b, "\n%20s: %s (%s)", "CA Fingerprint",
 		ssh.FingerprintSHA256(c.ca),
 		ssh.FingerprintLegacyMD5(c.ca))
-	fmt.Printf("\n%20s: %s", "CA Signature Format",
+	fmt.Fprintf(&b, "\n%20s: %s", "CA Signature Format",
 		cert.Signature.Format)
-	fmt.Printf("\n%20s: %s", "KeyId", cert.KeyId)
-	fmt.Printf("\n%20s: %s", "Valid from", validFrom)
-	fmt.Printf("\n%20s: %s", "Valid to", validTo)
-	if validTo.After(time.Now()) {
-		fmt.Printf(" (expires in %s)", time.Until(validTo))
+	fmt.Fprintf(&b, "\n%20s: %s", "KeyId", cert.KeyId)
+	fmt.Fprintf(&b, "\n%20s: %s", "Valid from", validFrom)
+	if cert.ValidBefore == ssh.CertTimeInfinity {
+		fmt.Fprintf(&b, "\n%20s: %s", "Valid to", "forever")
+	} else {
+		fmt.Fprintf(&b, "\n%20s: %s", "Valid to", validTo)
 	}
-	fmt.Printf("\n%20s:", "Principals")
+	if cert.ValidBefore != ssh.CertTimeInfinity && validTo.After(time.Now()) {
+		fmt.Fprintf(&b, " (expires in %s)", time.Until(validTo))
+	}
+	fmt.Fprintf(&b, "\n%20s:", "Principals")
 	for _, p := range cert.ValidPrincipals {
-		fmt.Printf("\n%20s  %s", " ", p)
+		fmt.Fprintf(&b, "\n%20s  %s", " ", p)
 	}
-	fmt.Printf("\n%20s:", "Critical Options")
+	fmt.Fprintf(&b, "\n%20s:", "Critical Options")
 	for k, v := range cert.CriticalOptions {
-		fmt.Printf("\n%20s  %s %s", " ", k, v)
+		fmt.Fprintf(&b, "\n%20s  %s %s", " ", k, v)
 	}
-	fmt.Printf("\n%20s:", "Extensions")
+	fmt.Fprintf(&b, "\n%20s:", "Extensions")
 	for k, v := range cert.Extensions {
-		fmt.Printf("\n%20s  %s %s", " ", k, v)
+		fmt.Fprintf(&b, "\n%20s  %s %s", " ", k, v)
 	}
-	fmt.Println()
+	b.WriteString("\n")
+	_, err := io.WriteString(w, b.String())
+	return err
 }
 
 func (c *Client) newReq() *resty.Request {
-	r := c.rest.R()
-	if c.restSRV != nil {
-		r.SetSRV(c.restSRV)
-	}
-	return r
+	return c.rest.R()
 }
+
+const redacted = "<redacted>"
+
+// Headers carrying credentials or session tokens, hidden from --debug output.
+var sensitiveHeaders = []string{"Authorization", "X-Auth"}
+
+func redactRequestLog(rl *resty.RequestLog) error {
+	for _, h := range sensitiveHeaders {
+		if rl.Header.Get(h) != "" {
+			rl.Header.Set(h, redacted)
+		}
+	}
+	return nil
+}
+
+// Login responses carry the session token in the body.
+func redactResponseLog(rl *resty.ResponseLog) error {
+	if strings.HasPrefix(rl.Header.Get("Content-Type"), "application/jwt") {
+		rl.Body = redacted
+	}
+	return nil
+}
+
+type discardLogger struct{}
+
+func (discardLogger) Errorf(string, ...any) {}
+func (discardLogger) Warnf(string, ...any)  {}
+func (discardLogger) Debugf(string, ...any) {}
 
 // urlFor returns a versioned url
 func (c *Client) urlFor(s string) string {
-	if !strings.HasSuffix(c.rest.HostURL, fmt.Sprintf("/%s", CurrentApiVersion)) {
-		return fmt.Sprintf("%s/%s", CurrentApiVersion, s)
+	if !strings.HasSuffix(c.rest.BaseURL, "/"+CurrentAPIVersion) {
+		return fmt.Sprintf("%s/%s", CurrentAPIVersion, s)
 	}
 	return s
 }
 
+// Close closes the agent connection. It is safe to call more than once.
 func (c *Client) Close() {
-	if c.agentClient != nil {
-		c.agentConn.Close()
+	if c.agentConn == nil {
+		return
+	}
+	if err := c.agentConn.Close(); err != nil {
+		Log.WithError(err).Error("failed to close agent connection")
+	}
+	c.agentConn = nil
+	c.agentClient = nil
+}
+
+func openFederatedAuthURL(authURL string) {
+	fmt.Printf("Attempting to open browser to URL: %s\n", authURL)
+	fmt.Println("If the browser doesn't open, navigate to the URL manually")
+	// The URL comes from the server. Only hand web URLs to the OS opener,
+	// which would otherwise launch any registered protocol handler.
+	if !isWebURL(authURL) {
+		Log.Warning("not opening browser, the auth URL is not an http(s) URL")
+		return
+	}
+	if err := open.Start(authURL); err != nil {
+		Log.WithError(err).Warning("cannot open browser")
 	}
 }
 
-func openFederatedAuthURL(url string) {
-	fmt.Printf("Attempting to open browser to URL: %s\n", url)
-	fmt.Println("If the browser doesn't open, navigate to the URL manually")
-	if err := open.Start(url); err != nil {
-		Log.WithError(err).Warning("cannot open browser")
-	}
+func isWebURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 }
 
 func getCurrentUsername() string {
@@ -1220,13 +1270,13 @@ func getCurrentUsername() string {
 func interactiveCredentialsPrompt(name, realm, credentialType, def string) ([]byte, error) {
 	var ret []byte
 	prompt := fmt.Sprintf("Enter %s for %q (%s): ",
-		strings.Title(credentialType), //nolint:staticcheck // not worth the x/text/cases and x/text/language deps
+		capitalize(credentialType),
 		name,
 		realm,
 	)
 	if def != "" {
 		prompt = fmt.Sprintf("Enter %s for %q (%s) [default: %s]: ",
-			strings.Title(credentialType), //nolint:staticcheck // not worth the x/text/cases and x/text/language deps
+			capitalize(credentialType),
 			name,
 			realm,
 			def,
@@ -1247,14 +1297,14 @@ func interactiveCredentialsPrompt(name, realm, credentialType, def string) ([]by
 			if ret, err = rl.ReadPassword(prompt); err == nil {
 				return ret, nil
 			}
-			if err == readline.ErrInterrupt {
+			if errors.Is(err, readline.ErrInterrupt) {
 				return nil, err
 			}
 			fmt.Fprintf(os.Stderr, "WARNING: cannot read password: %s\n", err)
 		default:
 			var line string
 			if line, err = rl.Readline(); err != nil {
-				if err == readline.ErrInterrupt {
+				if errors.Is(err, readline.ErrInterrupt) {
 					return nil, err
 				}
 				fmt.Fprintf(os.Stderr, "WARNING: cannot read: %s\n", err)
@@ -1268,6 +1318,15 @@ func interactiveCredentialsPrompt(name, realm, credentialType, def string) ([]by
 	return ret, nil
 }
 
+// capitalize upper-cases the first letter of s.
+func capitalize(s string) string {
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[size:]
+}
+
 func askPass(prompt string) []byte {
 	executable := os.Getenv("SSH_ASKPASS")
 	if executable == "" {
@@ -1277,15 +1336,12 @@ func askPass(prompt string) []byte {
 	if err != nil {
 		return nil
 	}
-	proc := exec.Command(bin, prompt)
+	proc := exec.CommandContext(context.Background(), bin, prompt) //nolint:gosec // SSH_ASKPASS is user configuration, as in OpenSSH
 	out, err := proc.Output()
 	if err != nil {
 		return nil
 	}
-	if out[len(out)-1] == '\n' {
-		out = out[0 : len(out)-1]
-	}
-	return out
+	return bytes.TrimSuffix(out, []byte("\n"))
 }
 
 func iterAgentKeys(agentClient agent.Agent, fn func(key ssh.PublicKey, comment string) error) error {
@@ -1296,7 +1352,7 @@ func iterAgentKeys(agentClient agent.Agent, fn func(key ssh.PublicKey, comment s
 	for _, key := range keys {
 		tmp, err := ssh.ParsePublicKey(key.Marshal())
 		if err != nil {
-			return errors.Wrap(err, "unexpected error")
+			return fmt.Errorf("unexpected error: %w", err)
 		}
 		if err := fn(tmp, key.Comment); err != nil {
 			return err
@@ -1317,11 +1373,11 @@ func shallowCertChecker(cert *ssh.Certificate, authority ssh.PublicKey) bool {
 		return false
 	}
 
-	unixNow := time.Now().Unix()
-	if after := int64(cert.ValidAfter); after < 0 || unixNow < int64(cert.ValidAfter) {
+	now := util.CertTimestamp(time.Now())
+	if now < cert.ValidAfter {
 		return false
 	}
-	if before := int64(cert.ValidBefore); cert.ValidBefore != uint64(ssh.CertTimeInfinity) && (unixNow >= before || before < 0) {
+	if cert.ValidBefore != ssh.CertTimeInfinity && now >= cert.ValidBefore {
 		return false
 	}
 	if err := cert.SignatureKey.Verify(bytesForSigning, cert.Signature); err != nil {
@@ -1338,7 +1394,7 @@ func readMultipleLines(prompt string, cb func(l []byte) bool) error {
 	for {
 		line, err := rl.ReadSlice()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return err

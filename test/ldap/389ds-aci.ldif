@@ -1,0 +1,6 @@
+# Let authenticated users read the directory (users and groups). 389 DS
+# denies everything that no ACI grants.
+dn: dc=example,dc=com
+changetype: modify
+add: aci
+aci: (targetattr != "userPassword")(version 3.0; acl "Authenticated read"; allow (read, search, compare) userdn = "ldap:///all";)

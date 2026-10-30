@@ -2,11 +2,11 @@ package server
 
 import (
 	"crypto/tls"
+	"errors"
 	"path"
+	"strings"
 
 	"github.com/aakso/ssh-inscribe/internal/globals"
-
-	"github.com/pkg/errors"
 )
 
 type CertificateConfig struct {
@@ -39,14 +39,14 @@ type Config struct {
 	TokenSigningKey           string        `yaml:"tokenSigningKey"`
 }
 
-var Defaults *Config = &Config{
+var Defaults = &Config{
 	Listen:       ":8540",
 	TLSCertFile:  "",
 	TLSKeyFile:   "",
 	TLSCertFiles: []string{},
 	TLSKeyFiles:  []string{},
 	AuthBackends: []AuthBackend{
-		AuthBackend{
+		{
 			Type:    "authfile",
 			Config:  "authfile",
 			Default: false,
@@ -63,6 +63,25 @@ var Defaults *Config = &Config{
 	TokenSigningKey:           "",
 }
 
+// GetCertificate selects a certificate by the TLS server name, exactly or by
+// a wildcard for the first label, like the deprecated
+// tls.Config.NameToCertificate did. It returns nil when there is no match so
+// that crypto/tls falls back to its default selection.
+func (cc CertificateConfig) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	name := strings.ToLower(hello.ServerName)
+	if cert, ok := cc.CertificateMap[name]; ok {
+		return cert, nil
+	}
+	if name != "" {
+		labels := strings.Split(name, ".")
+		labels[0] = "*"
+		if cert, ok := cc.CertificateMap[strings.Join(labels, ".")]; ok {
+			return cert, nil
+		}
+	}
+	return nil, nil
+}
+
 func (c Config) GetCertificateMap() (cc CertificateConfig, err error) {
 	cc = CertificateConfig{
 		Certificates:   []tls.Certificate{},
@@ -72,7 +91,7 @@ func (c Config) GetCertificateMap() (cc CertificateConfig, err error) {
 	// Single certificate has no name configuration
 	if c.TLSCertFile != "" && c.TLSKeyFile != "" {
 		if len(c.TLSCertFiles) > 0 {
-			return cc, errors.New("Unsupported configuration, either set TLSCertFile or TLSCertFiles, not both")
+			return cc, errors.New("unsupported configuration, either set TLSCertFile or TLSCertFiles, not both")
 		}
 
 		var certificate, err = tls.LoadX509KeyPair(c.TLSCertFile, c.TLSKeyFile)

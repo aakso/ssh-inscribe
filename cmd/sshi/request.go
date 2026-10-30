@@ -15,7 +15,7 @@ var ReqCmd = &cobra.Command{
 	Short:             "Login to server and generate SSH certificate",
 	Args:              cobra.NoArgs,
 	ValidArgsFunction: cobra.NoFileCompletions,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		c := &ui.Client{
 			Config: ClientConfig,
 		}
@@ -45,7 +45,7 @@ func init() {
 		os.Getenv("SSH_INSCRIBE_IDENTITY"),
 		"Identity (private key) file location. Required if --generate is unset ($SSH_INSCRIBE_IDENTITY)",
 	)
-	_ = ReqCmd.RegisterFlagCompletionFunc("identity", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = ReqCmd.RegisterFlagCompletionFunc("identity", func(_ *cobra.Command, _ []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if toComplete == "" {
 			return []string{"~/.ssh/"}, cobra.ShellCompDirectiveNoSpace
 		}

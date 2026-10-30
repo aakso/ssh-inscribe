@@ -4,17 +4,20 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
 func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validBefore time.Time, maxPrincipalsPerCert int) []*ssh.Certificate {
 	var kid strings.Builder
-	kid.WriteString(fmt.Sprintf("subject=%q", actx.GetSubjectName()))
+	fmt.Fprintf(&kid, "subject=%q", actx.GetSubjectName())
 	if aid, ok := actx.GetAuthMeta()[MetaAuditID]; ok {
-		kid.WriteString(fmt.Sprintf(" audit_id=%q", aid))
+		fmt.Fprintf(&kid, " audit_id=%q", aid)
 	}
-	kid.WriteString(fmt.Sprintf(" via=%q", strings.Join(actx.GetAuthenticators(), ",")))
+	fmt.Fprintf(&kid, " via=%q", strings.Join(actx.GetAuthenticators(), ","))
 
 	remainingPrincipals := actx.GetPrincipals()
 	if maxPrincipalsPerCert == 0 {
@@ -22,10 +25,7 @@ func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validBefore time.Tim
 	}
 	var certs []*ssh.Certificate
 	for {
-		pos := len(remainingPrincipals)
-		if pos > maxPrincipalsPerCert {
-			pos = maxPrincipalsPerCert
-		}
+		pos := min(len(remainingPrincipals), maxPrincipalsPerCert)
 		principals := remainingPrincipals[:pos]
 		remainingPrincipals = remainingPrincipals[pos:]
 
@@ -34,8 +34,8 @@ func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validBefore time.Tim
 			CertType:        ssh.UserCert,
 			KeyId:           kid.String(),
 			ValidPrincipals: principals,
-			ValidAfter:      uint64(time.Now().Unix()),
-			ValidBefore:     uint64(validBefore.Unix()),
+			ValidAfter:      util.CertTimestamp(time.Now()),
+			ValidBefore:     util.CertTimestamp(validBefore),
 			Permissions: ssh.Permissions{
 				CriticalOptions: actx.GetCriticalOptions(),
 				Extensions:      actx.GetExtensions(),
@@ -46,4 +46,14 @@ func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validBefore time.Tim
 		}
 	}
 	return certs
+}
+
+// UnsafePrincipal reports whether p cannot be matched unambiguously by sshd.
+// The authorized_keys principals="" option splits certificate principals on
+// commas, so "a,b" matches both "a" and "b". Control characters are never
+// legitimate.
+func UnsafePrincipal(p string) bool {
+	return p == "" || strings.ContainsFunc(p, func(r rune) bool {
+		return r == ',' || unicode.IsControl(r)
+	})
 }

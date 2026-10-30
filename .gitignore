@@ -4,3 +4,9 @@
 build
 dist
 .vscode
+.idea
+/ssh-inscribe
+/sshi
+*.out
+coverage.*
+/.bin

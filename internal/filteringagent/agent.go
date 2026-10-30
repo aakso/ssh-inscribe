@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"sync"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
@@ -30,8 +31,27 @@ type filteringAgent struct {
 	signatureFormat string
 	keyType         string
 
-	agent     agent.Agent
+	agent agent.Agent
+
+	// sshi serves each agent connection in its own goroutine
+	mu        sync.Mutex
 	addedKeys map[string]bool
+}
+
+func (a *filteringAgent) isAdded(fingerprint string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.addedKeys[fingerprint]
+}
+
+func (a *filteringAgent) setAdded(fingerprint string, added bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if added {
+		a.addedKeys[fingerprint] = true
+	} else {
+		delete(a.addedKeys, fingerprint)
+	}
 }
 
 func (a *filteringAgent) List() ([]*agent.Key, error) {
@@ -45,7 +65,7 @@ func (a *filteringAgent) List() ([]*agent.Key, error) {
 		if err != nil {
 			return nil, err
 		}
-		if a.addedKeys[fingerprintSHA256(key)] {
+		if a.isAdded(fingerprintSHA256(key)) {
 			out = append(out, rawKey)
 			continue
 		}
@@ -108,24 +128,24 @@ func (a *filteringAgent) Add(key agent.AddedKey) error {
 		return err
 	}
 	if err := a.agent.Add(key); err != nil {
-		return nil
+		return err
 	}
-	a.addedKeys[fingerprintSHA256(signer.PublicKey())] = true
+	a.setAdded(fingerprintSHA256(signer.PublicKey()), true)
 	if key.Certificate != nil {
-		a.addedKeys[fingerprintSHA256(key.Certificate)] = true
+		a.setAdded(fingerprintSHA256(key.Certificate), true)
 	}
 	return nil
 }
 
 func (a *filteringAgent) Remove(key ssh.PublicKey) error {
-	if !a.addedKeys[fingerprintSHA256(key)] {
+	if !a.isAdded(fingerprintSHA256(key)) {
 		return ErrNoSuchKey
 	}
 
 	if err := a.agent.Remove(key); err != nil {
 		return err
 	}
-	delete(a.addedKeys, fingerprintSHA256(key))
+	a.setAdded(fingerprintSHA256(key), false)
 	return nil
 }
 
@@ -135,7 +155,7 @@ func (a *filteringAgent) RemoveAll() error {
 		return err
 	}
 	for _, rawKey := range keys {
-		if !a.addedKeys[fingerprintSHA256(rawKey)] {
+		if !a.isAdded(fingerprintSHA256(rawKey)) {
 			continue
 		}
 		agentKey, err := ssh.ParsePublicKey(rawKey.Marshal())
@@ -145,7 +165,7 @@ func (a *filteringAgent) RemoveAll() error {
 		if err := a.agent.Remove(agentKey); err != nil {
 			return err
 		}
-		delete(a.addedKeys, fingerprintSHA256(agentKey))
+		a.setAdded(fingerprintSHA256(agentKey), false)
 	}
 	return nil
 }

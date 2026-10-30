@@ -1,15 +1,14 @@
 package authfile
 
 import (
-	"bytes"
+	"crypto/subtle"
+	"fmt"
+	"maps"
 	"os"
 
-	yaml "gopkg.in/yaml.v2"
-
-	"golang.org/x/crypto/bcrypt"
-
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"go.yaml.in/yaml/v2"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
 )
@@ -24,13 +23,16 @@ func (fa *AuthFile) Reload() error {
 	var tmp struct{ Users []UserEntry }
 	data, err := os.ReadFile(fa.config.Path)
 	if err != nil {
-		return errors.Wrap(err, "cannot parse users file")
+		return fmt.Errorf("cannot parse users file: %w", err)
 	}
 	err = yaml.Unmarshal(data, &tmp)
 	if err != nil {
-		return errors.Wrap(err, "cannot parse users file")
+		return fmt.Errorf("cannot parse users file: %w", err)
 	}
 	for _, e := range tmp.Users {
+		if e.Password == "" {
+			fa.log.WithField("user", e.Name).Warn("user has no password set, login disabled")
+		}
 		fa.users[e.Name] = e
 	}
 	fa.log.WithField("count_users", len(fa.users)).Info("reloaded users")
@@ -49,7 +51,14 @@ func (fa *AuthFile) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 
 	entry, ok := fa.users[creds.UserIdentifier]
 	if !ok {
+		// Spend the same time as for an existing user so that response
+		// times do not reveal which user names exist.
+		_ = bcrypt.CompareHashAndPassword(dummyHash, creds.Secret)
 		log.WithField("user", creds.UserIdentifier).Info("user not found")
+		return nil, false
+	}
+	if entry.Password == "" || len(creds.Secret) == 0 {
+		log.WithField("user", creds.UserIdentifier).Info("empty password")
 		return nil, false
 	}
 
@@ -62,7 +71,7 @@ func (fa *AuthFile) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		log.WithField("user", creds.UserIdentifier).Debug("brypt auth successful")
 	} else {
 		log.WithField("user", creds.UserIdentifier).Warn("plain password auth")
-		if !bytes.Equal([]byte(entry.Password), creds.Secret) {
+		if subtle.ConstantTimeCompare([]byte(entry.Password), creds.Secret) != 1 {
 			log.WithField("user", creds.UserIdentifier).Warn("plain password auth fail")
 			return nil, false
 		}
@@ -73,7 +82,7 @@ func (fa *AuthFile) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		Parent:          pctx,
 		SubjectName:     entry.Name,
 		Principals:      entry.Principals,
-		CriticalOptions: entry.CriticalOptions,
+		CriticalOptions: entry.criticalOptions(),
 		Extensions:      entry.Extensions,
 		Authenticator:   fa.Name(),
 		AuthMeta:        creds.Meta,
@@ -111,10 +120,26 @@ func New(config *Config) (*AuthFile, error) {
 	return r, nil
 }
 
+var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy password"), bcrypt.DefaultCost)
+
 type UserEntry struct {
-	Name            string
-	Password        string
-	Principals      []string
-	CriticalOptions map[string]string
-	Extensions      map[string]string
+	Name       string
+	Password   string
+	Principals []string
+	// CriticalOptions is the documented key. Without the tag yaml.v2 only
+	// matched "criticaloptions" and silently ignored the documented
+	// spelling; accept both.
+	CriticalOptions      map[string]string `yaml:"criticalOptions"`
+	CriticalOptionsLower map[string]string `yaml:"criticaloptions"`
+	Extensions           map[string]string
+}
+
+func (e UserEntry) criticalOptions() map[string]string {
+	if len(e.CriticalOptionsLower) == 0 {
+		return e.CriticalOptions
+	}
+	r := make(map[string]string, len(e.CriticalOptions)+len(e.CriticalOptionsLower))
+	maps.Copy(r, e.CriticalOptionsLower)
+	maps.Copy(r, e.CriticalOptions)
+	return r
 }

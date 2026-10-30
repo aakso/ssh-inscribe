@@ -1,5 +1,7 @@
 [Unit]
 Description=SSH Inscribe Server
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 User=sshi
@@ -7,6 +9,24 @@ Restart=on-failure
 RestartSec=30
 ExecStart=/usr/bin/ssh-inscribe server --config /etc/ssh-inscribe/server_config.yaml
 KillMode=process
+UMask=0077
+
+# Hardening that does not restrict file system or device access, so custom
+# agent socket, configuration and PKCS#11 (HSM) setups keep working. Do not add
+# options that imply DeviceAllow= (PrivateDevices=, ProtectClock=): they cut
+# ssh-agent's PKCS#11 module off from USB tokens. See TODO.md for stricter
+# sandboxing.
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target

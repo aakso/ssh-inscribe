@@ -1,32 +1,33 @@
 package signapi
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
-	"github.com/labstack/echo-jwt/v4"
+	echojwt "github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/labstack/gommon/random"
-	"github.com/pkg/errors"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
+	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
-func (sa *SignApi) RegisterRoutes(g *echo.Group) {
+func (sa *SignAPI) RegisterRoutes(g *echo.Group) {
 	g.GET("/auth", sa.HandleAuthDiscover)
 	g.POST("/auth/:name",
 		sa.HandleLogin,
 		userPasswordForward(sa.LoginUserPasswordAuthSkipper),
-		jwtAuth(sa.tkey, &SignClaim{}, true),
+		jwtAuth(sa.tkey, true),
 		auditID(),
 	)
 	g.GET("/auth_callback/:name", sa.HandleAuthCallback)
 	g.POST("/auth_callback/:name", sa.HandleAuthCallback)
-	g.POST("/sign", sa.HandleSign, jwtAuth(sa.tkey, &SignClaim{}, false), auditID())
+	g.POST("/sign", sa.HandleSign, jwtAuth(sa.tkey, false), auditID())
 	g.GET("/ca", sa.HandleGetKey)
-	g.POST("/ca", sa.HandleAddKey, jwtAuth(sa.tkey, &SignClaim{}, false), auditID())
-	g.POST("/ca/response", sa.HandleCaChallenge, jwtAuth(sa.tkey, &SignClaim{}, false),
+	g.POST("/ca", sa.HandleAddKey, jwtAuth(sa.tkey, false), auditID())
+	g.POST("/ca/response", sa.HandleCaChallenge, jwtAuth(sa.tkey, false),
 		userPasswordForward(nil), auditID())
 	g.GET("/ready", sa.HandleReady)
 }
@@ -42,23 +43,29 @@ func userPasswordForward(skipper middleware.Skipper) echo.MiddlewareFunc {
 	})
 }
 
-func jwtAuth(key []byte, claims jwt.Claims, skipIfMissing bool) echo.MiddlewareFunc {
+func jwtAuth(key []byte, skipIfMissing bool) echo.MiddlewareFunc {
 	const authHeader = "X-Auth"
 	config := echojwt.Config{
 		SigningKey:  key,
 		TokenLookup: "header:" + authHeader,
 		// ref: https://echo.labstack.com/middleware/jwt/
-		ParseTokenFunc: func(c echo.Context, auth string) (interface{}, error) {
-			keyFunc := func(t *jwt.Token) (interface{}, error) {
+		ParseTokenFunc: func(_ echo.Context, auth string) (any, error) {
+			keyFunc := func(t *jwt.Token) (any, error) {
 				if t.Method.Alg() != "HS256" {
-					return nil, errors.Errorf("unexpected jwt signing method=%v", t.Header["alg"])
+					return nil, fmt.Errorf("unexpected jwt signing method=%v", t.Header["alg"])
 				}
 				return key, nil
 			}
 
 			auth = strings.TrimPrefix(auth, "Bearer ")
-			// claims are of type `jwt.MapClaims` when token is created with `jwt.Parse`
-			token, err := jwt.ParseWithClaims(auth, claims, keyFunc)
+			// Decode into a fresh claims object on every request. The library
+			// writes the payload before it checks the signature, so a shared
+			// object would keep maps from rejected tokens and race with
+			// concurrent requests.
+			token, err := jwt.ParseWithClaims(auth, &SignClaim{}, keyFunc,
+				jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+				jwt.WithExpirationRequired(),
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -96,7 +103,7 @@ func auditID() echo.MiddlewareFunc {
 				}
 			} else {
 				// Instantiate new audit id otherwise
-				rid := random.String(32)
+				rid := util.RandAlphanumeric(32)
 				c.Response().Header().Set(echo.HeaderXRequestID, rid)
 			}
 			return next(c)

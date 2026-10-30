@@ -7,7 +7,6 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
-	"github.com/pkg/errors"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
 )
@@ -16,7 +15,7 @@ const (
 	MaxAuthContextChainLength = 8
 )
 
-func (sa *SignApi) LoginUserPasswordAuthSkipper(c echo.Context) bool {
+func (sa *SignAPI) LoginUserPasswordAuthSkipper(c echo.Context) bool {
 	name, _ := url.PathUnescape(c.Param("name"))
 	if ab, ok := sa.auth[name]; ok {
 		if ab.CredentialType() == auth.CredentialFederated {
@@ -26,7 +25,7 @@ func (sa *SignApi) LoginUserPasswordAuthSkipper(c echo.Context) bool {
 	return false
 }
 
-func (sa *SignApi) HandleLogin(c echo.Context) error {
+func (sa *SignAPI) HandleLogin(c echo.Context) error {
 	var parentCtx *auth.AuthContext
 	name, _ := url.PathUnescape(c.Param("name"))
 	ab, ok := sa.auth[name]
@@ -49,7 +48,7 @@ func (sa *SignApi) HandleLogin(c echo.Context) error {
 	creds := &auth.Credentials{
 		UserIdentifier: user,
 		Secret:         []byte(pw),
-		Meta: map[string]interface{}{
+		Meta: map[string]any{
 			auth.MetaAuditID: c.Response().Header().Get(echo.HeaderXRequestID),
 		},
 	}
@@ -61,7 +60,7 @@ func (sa *SignApi) HandleLogin(c echo.Context) error {
 	token := sa.makeToken(actx)
 	signed, err := token.SignedString(sa.tkey)
 	if err != nil {
-		return errors.Wrap(err, "cannot sign token")
+		return fmt.Errorf("cannot sign token: %w", err)
 	}
 
 	if actx.Status == auth.StatusPending {
@@ -78,7 +77,7 @@ func (sa *SignApi) HandleLogin(c echo.Context) error {
 	return c.Blob(http.StatusOK, "application/jwt", []byte(signed))
 }
 
-func (sa *SignApi) HandleAuthCallback(c echo.Context) error {
+func (sa *SignAPI) HandleAuthCallback(c echo.Context) error {
 	name, _ := url.PathUnescape(c.Param("name"))
 	ab, ok := sa.auth[name]
 	if !ok {

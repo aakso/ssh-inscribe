@@ -3,6 +3,8 @@ package authoidc
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -10,8 +12,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/coreos/go-oidc"
-	"github.com/pkg/errors"
+	"github.com/coreos/go-oidc/v3/oidc"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 
@@ -25,11 +26,18 @@ const (
 
 	subjectName = "subjectName"
 	principal   = "principal"
+
+	emailClaim         = "email"
+	emailVerifiedClaim = "email_verified"
 )
 
 type entryState struct {
-	claims map[string]interface{}
+	claims map[string]any
 	ts     time.Time
+
+	// PKCE code verifier and OIDC nonce bound to this auth request
+	verifier string
+	nonce    string
 }
 
 type AuthOIDC struct {
@@ -40,79 +48,110 @@ type AuthOIDC struct {
 	provider    *oidc.Provider
 	verifier    *oidc.IDTokenVerifier
 
-	sync.RWMutex
+	sync.Mutex
 	pendingRequests map[string]entryState
-	nextEvict       *time.Timer
 }
 
 func (ao *AuthOIDC) authFlowTimeout() time.Duration {
 	return time.Duration(ao.config.AuthFlowTimeout) * time.Second
 }
 
-// Save pending auth request with state key and schedule an evict task
-func (ao *AuthOIDC) saveState(state string, claims map[string]interface{}) error {
+func (ao *AuthOIDC) expired(e entryState, now time.Time) bool {
+	return !e.ts.Add(ao.authFlowTimeout()).After(now)
+}
+
+// Save a new pending auth request. Expired requests are evicted first so
+// that they do not count towards the limit.
+func (ao *AuthOIDC) saveState(state string, entry entryState) error {
 	ao.Lock()
 	defer ao.Unlock()
+	ao.evictExpiredLocked()
 	if len(ao.pendingRequests) >= ao.config.MaxPendingAuthAttempts {
 		return errors.New("maximum number of pending requests reached")
 	}
-
-	ao.pendingRequests[state] = entryState{claims: claims, ts: time.Now()}
-	if ao.nextEvict != nil {
-		ao.nextEvict.Reset(ao.authFlowTimeout())
-	} else {
-		ao.nextEvict = time.AfterFunc(ao.authFlowTimeout(), func() {
-			ao.evictStateEntries()
-		})
-	}
+	entry.ts = time.Now()
+	ao.pendingRequests[state] = entry
 	return nil
 }
 
-func (ao *AuthOIDC) deleteState(state string) {
+// Attach claims to a pending request. Only the first successful callback
+// for a state is accepted.
+func (ao *AuthOIDC) setClaims(state string, claims map[string]any) error {
 	ao.Lock()
 	defer ao.Unlock()
-	delete(ao.pendingRequests, state)
+	e, ok := ao.pendingRequests[state]
+	if !ok || ao.expired(e, time.Now()) {
+		return errors.New("no matching state found")
+	}
+	if e.claims != nil {
+		return errors.New("auth request already completed")
+	}
+	e.claims = claims
+	ao.pendingRequests[state] = e
+	return nil
 }
 
-// Return auth request if sate key matches and the request hasn't expired
+// takeCompleted reports whether the request exists and, if its callback has
+// completed, removes it and returns its claims. Taking and removing happen
+// under one lock so that a request completes only once.
+func (ao *AuthOIDC) takeCompleted(state string) (map[string]any, bool) {
+	ao.Lock()
+	defer ao.Unlock()
+	e, ok := ao.pendingRequests[state]
+	if !ok || ao.expired(e, time.Now()) {
+		return nil, false
+	}
+	if e.claims != nil {
+		delete(ao.pendingRequests, state)
+	}
+	return e.claims, true
+}
+
+// Return auth request if state key matches and the request hasn't expired
 func (ao *AuthOIDC) getState(state string) (entryState, bool) {
-	ao.RLock()
-	defer ao.RUnlock()
-	if v, ok := ao.pendingRequests[state]; ok {
-		if v.ts.Add(ao.authFlowTimeout()).After(time.Now()) {
-			return v, true
-		}
+	ao.Lock()
+	defer ao.Unlock()
+	if v, ok := ao.pendingRequests[state]; ok && !ao.expired(v, time.Now()) {
+		return v, true
 	}
 	return entryState{}, false
 }
 
-// Evict expired auth requests
-func (ao *AuthOIDC) evictStateEntries() {
+func (ao *AuthOIDC) evictExpiredLocked() {
+	now := time.Now()
 	for k, v := range ao.pendingRequests {
-		if v.ts.Add(ao.authFlowTimeout()).Before(time.Now()) {
+		if ao.expired(v, now) {
 			delete(ao.pendingRequests, k)
 			ao.log.WithField("state", k).Info("evicted")
 		}
 	}
 }
 
-func (ao *AuthOIDC) startFlow(pctx *auth.AuthContext, meta map[string]interface{}) (*auth.AuthContext, bool) {
+func (ao *AuthOIDC) startFlow(pctx *auth.AuthContext, meta map[string]any) (*auth.AuthContext, bool) {
 	log := ao.log.WithField("action", "startFlow")
 	if meta == nil {
-		meta = map[string]interface{}{}
+		meta = map[string]any{}
 	}
 	// State will be used as a key to the cache containing the pending actx
 	state := newRandomState()
+	entry := entryState{
+		verifier: oauth2.GenerateVerifier(),
+		nonce:    newRandomState(),
+	}
 	log = log.WithField("state", state).WithField("audit_id", meta[auth.MetaAuditID])
 	meta[stateKey] = state
-	meta[auth.MetaFederationAuthURL] = ao.oauthConfig.AuthCodeURL(state, oauth2.AccessTypeOnline)
+	meta[auth.MetaFederationAuthURL] = ao.oauthConfig.AuthCodeURL(state,
+		oauth2.AccessTypeOnline,
+		oauth2.S256ChallengeOption(entry.verifier),
+		oidc.Nonce(entry.nonce),
+	)
 	newctx := &auth.AuthContext{
 		Status:        auth.StatusPending,
 		Parent:        pctx,
 		Authenticator: ao.Name(),
 		AuthMeta:      meta,
 	}
-	if err := ao.saveState(state, nil); err != nil {
+	if err := ao.saveState(state, entry); err != nil {
 		log.WithError(err).Error("cannot save state")
 		return nil, false
 	}
@@ -127,16 +166,17 @@ func (ao *AuthOIDC) completeFlow(pctx *auth.AuthContext) (*auth.AuthContext, boo
 	log = log.WithField("audit_id", auditID).
 		WithField("state", state)
 	// Check whether this is a started authorization
-	if entry, ok := ao.getState(state); ok {
-		if entry.claims != nil {
-			ao.fillAuthContext(pctx, entry.claims)
-			ao.deleteState(state)
+	if claims, ok := ao.takeCompleted(state); ok {
+		if claims != nil {
+			if err := ao.fillAuthContext(pctx, claims); err != nil {
+				log.WithError(err).Warn("authentication rejected")
+				return nil, false
+			}
 			log.Info("completed authentication")
 			return pctx, true
-		} else {
-			log.Info("auth flow is incomplete")
-			return pctx, true
 		}
+		log.Info("auth flow is incomplete")
+		return pctx, true
 	}
 	log.Warning("unknown pending auth request")
 	return nil, false
@@ -176,7 +216,7 @@ func (ao *AuthOIDC) CredentialType() string {
 	return auth.CredentialFederated
 }
 
-func (ao *AuthOIDC) FederationCallback(data interface{}) error {
+func (ao *AuthOIDC) FederationCallback(data any) error {
 	log := ao.log.WithField("action", "callback")
 	resp, ok := data.(url.Values)
 	if !ok {
@@ -189,79 +229,128 @@ func (ao *AuthOIDC) FederationCallback(data interface{}) error {
 		return errors.New("no state")
 	}
 	log = log.WithField("state", state)
+	if idpErr := resp.Get("error"); idpErr != "" {
+		log.WithField("error", idpErr).WithField("error_description", resp.Get("error_description")).
+			Info("identity provider returned an error")
+		return fmt.Errorf("identity provider returned an error: %s", idpErr)
+	}
 	code := resp.Get(codeKey)
 	if code == "" {
 		log.Info("no auth code")
 		return errors.New("no auth code")
 	}
-	if _, ok := ao.getState(state); !ok {
+	entry, ok := ao.getState(state)
+	if !ok {
 		log.Info("unknown state")
 		return errors.New("no matching state found")
+	}
+	if entry.claims != nil {
+		log.Warn("callback for an already completed auth request")
+		return errors.New("auth request already completed")
 	}
 
 	tctx, cancel := context.WithTimeout(context.Background(), time.Duration(ao.config.Timeout)*time.Second)
 	defer cancel()
 	log.Debug("exchanging the code for a token")
-	token, err := ao.oauthConfig.Exchange(tctx, code)
+	token, err := ao.oauthConfig.Exchange(tctx, code, oauth2.VerifierOption(entry.verifier))
 	if err != nil {
 		log.WithError(err).Error("cannot exchange auth code")
-		return errors.Wrap(err, "cannot exchange auth code")
+		return fmt.Errorf("cannot exchange auth code: %w", err)
 	}
 	log.Debug("validating token")
-	claims, err := ao.validateToken(token)
+	claims, err := ao.validateToken(token, entry.nonce)
 	if err != nil {
-		return errors.Wrap(err, "cannot validate token")
+		log.WithError(err).Error("token validation failed")
+		return fmt.Errorf("cannot validate token: %w", err)
 	}
-	if err := ao.saveState(state, claims); err != nil {
+	if err := ao.setClaims(state, claims); err != nil {
 		return err
 	}
 	log.Info("callback succeeded")
 	return nil
 }
 
-func (ao *AuthOIDC) fillAuthContext(actx *auth.AuthContext, claims map[string]interface{}) {
+func (ao *AuthOIDC) fillAuthContext(actx *auth.AuthContext, claims map[string]any) error {
+	if err := ao.checkEmailVerified(claims); err != nil {
+		return err
+	}
 	// Map user defined fields and run them thru the template
 	actx.SubjectName = ao.renderTpl(subjectName, selectString(claims, ao.config.ValueMappings.SubjectNameField))
 	for _, v := range selectStringSlice(claims, ao.config.ValueMappings.PrincipalsField) {
-		actx.Principals = append(actx.Principals, ao.renderTpl(principal, v))
+		if p := ao.renderTpl(principal, v); p != "" {
+			actx.Principals = append(actx.Principals, p)
+		}
 	}
 	// Fall back to single principal in case the token field is not a string slice
 	if actx.Principals == nil {
 		if s := selectString(claims, ao.config.ValueMappings.PrincipalsField); s != "" {
-			actx.Principals = append(actx.Principals, s)
+			if p := ao.renderTpl(principal, s); p != "" {
+				actx.Principals = append(actx.Principals, p)
+			}
 		}
 	}
+	// Principals come from the identity provider; drop the ones sshd could
+	// interpret as several principals.
+	filtered := actx.Principals[:0]
+	for _, p := range actx.Principals {
+		if auth.UnsafePrincipal(p) {
+			ao.log.WithField("principal", p).Warn("dropping unsafe principal")
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	actx.Principals = filtered
 	// From configuration
 	actx.Principals = append(actx.Principals, ao.config.Principals...)
 	actx.CriticalOptions = ao.config.CriticalOptions
 	actx.Extensions = ao.config.Extensions
 
 	actx.Status = auth.StatusCompleted
+	return nil
+}
+
+// The email claim is only trustworthy if the provider has verified it.
+// Some providers let users set an arbitrary address.
+func (ao *AuthOIDC) checkEmailVerified(claims map[string]any) error {
+	if !ao.config.RequireVerifiedEmail {
+		return nil
+	}
+	vm := ao.config.ValueMappings
+	if vm.PrincipalsField != emailClaim && vm.SubjectNameField != emailClaim {
+		return nil
+	}
+	if verified, _ := claims[emailVerifiedClaim].(bool); !verified {
+		return fmt.Errorf("%s claim is used but %s is not true", emailClaim, emailVerifiedClaim)
+	}
+	return nil
 }
 
 // Extract idtoken and fill auth context
-func (ao *AuthOIDC) validateToken(token *oauth2.Token) (map[string]interface{}, error) {
+func (ao *AuthOIDC) validateToken(token *oauth2.Token, nonce string) (map[string]any, error) {
 	log := ao.log.WithField("action", "validateToken")
 	jwtToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		return nil, errors.Errorf("%s: no id_token found", ao.Name())
+		return nil, fmt.Errorf("%s: no id_token found", ao.Name())
 	}
 	tctx, cancel := context.WithTimeout(context.Background(), time.Duration(ao.config.Timeout)*time.Second)
 	defer cancel()
 	IDToken, err := ao.verifier.Verify(tctx, jwtToken)
 	if err != nil {
-		return nil, errors.Wrap(err, "verify error")
+		return nil, fmt.Errorf("verify error: %w", err)
 	}
-	claims := map[string]interface{}{}
+	if subtle.ConstantTimeCompare([]byte(IDToken.Nonce), []byte(nonce)) != 1 {
+		return nil, errors.New("verify error: nonce mismatch")
+	}
+	claims := map[string]any{}
 	if err = IDToken.Claims(&claims); err != nil {
-		return nil, errors.Wrap(err, "claims unmarshal error")
+		return nil, fmt.Errorf("claims unmarshal error: %w", err)
 	}
 	log.WithField("claims", claims).Debug("got claims")
 
 	return claims, nil
 }
 
-func (ao *AuthOIDC) renderTpl(name string, data interface{}) string {
+func (ao *AuthOIDC) renderTpl(name string, data any) string {
 	buf := bytes.NewBuffer([]byte{})
 	err := ao.tpls.ExecuteTemplate(buf, name, data)
 	if err != nil {
@@ -270,10 +359,10 @@ func (ao *AuthOIDC) renderTpl(name string, data interface{}) string {
 	return buf.String()
 }
 
-func selectStringSlice(m map[string]interface{}, k string) []string {
+func selectStringSlice(m map[string]any, k string) []string {
 	var r []string
 	if v, ok := m[k]; ok {
-		if slice, ok := v.([]interface{}); ok {
+		if slice, ok := v.([]any); ok {
 			for _, e := range slice {
 				r = append(r, fmt.Sprintf("%s", e))
 			}
@@ -282,7 +371,7 @@ func selectStringSlice(m map[string]interface{}, k string) []string {
 	return r
 }
 
-func selectString(m map[string]interface{}, k string) string {
+func selectString(m map[string]any, k string) string {
 	if v, ok := m[k]; ok {
 		if s, ok := v.(string); ok {
 			return s
@@ -292,11 +381,10 @@ func selectString(m map[string]interface{}, k string) string {
 }
 
 func New(config *Config) (*AuthOIDC, error) {
-	if config.ClientId == "" ||
+	if config.ClientID == "" ||
 		config.ClientSecret == "" ||
 		config.ProviderURL == "" {
-
-		return nil, errors.Errorf("%s: required config items: clientId, clientSecret, authURL, tokenURL", config.Name)
+		return nil, fmt.Errorf("%s: required config items: clientId, clientSecret, authURL, tokenURL", config.Name)
 	}
 	log := Log.WithFields(logrus.Fields{
 		"realm": config.Realm,
@@ -308,7 +396,7 @@ func New(config *Config) (*AuthOIDC, error) {
 	parseTpl := func(name, tpl string) {
 		_, err := rootTpl.New(name).Parse(tpl)
 		if err != nil {
-			tplError = errors.Wrapf(err, "cannot parse %s", name)
+			tplError = fmt.Errorf("cannot parse %s: %w", name, err)
 		}
 	}
 	parseTpl(subjectName, config.ValueMappings.SubjectNameTemplate)
@@ -319,7 +407,7 @@ func New(config *Config) (*AuthOIDC, error) {
 
 	provider, err := oidc.NewProvider(context.Background(), config.ProviderURL)
 	if err != nil {
-		return nil, errors.Wrapf(err, "%s: cannot instantiate auth provider", config.Name)
+		return nil, fmt.Errorf("%s: cannot instantiate auth provider: %w", config.Name, err)
 	}
 	log.WithFields(logrus.Fields{
 		"auth_url":  provider.Endpoint().AuthURL,
@@ -333,13 +421,13 @@ func New(config *Config) (*AuthOIDC, error) {
 		oauthConfig: &oauth2.Config{
 			RedirectURL:  config.RedirectURL,
 			Endpoint:     provider.Endpoint(),
-			ClientID:     config.ClientId,
+			ClientID:     config.ClientID,
 			ClientSecret: config.ClientSecret,
 			Scopes:       config.Scopes,
 		},
 		provider: provider,
 		verifier: provider.Verifier(&oidc.Config{
-			ClientID: config.ClientId,
+			ClientID: config.ClientID,
 		}),
 		log: Log.WithFields(logrus.Fields{
 			"realm": config.Realm,

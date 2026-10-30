@@ -6,14 +6,17 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/aakso/ssh-inscribe/internal/keysigner"
+	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
 type certsAndKeys struct {
@@ -30,6 +33,7 @@ type certsAndKeys struct {
 }
 
 func (c *certsAndKeys) addCertsToAgent(t *testing.T, a agent.Agent, skipCa2 bool) {
+	t.Helper()
 	var err error
 	checkErr := func(err error) {
 		if err != nil {
@@ -57,6 +61,7 @@ func (c *certsAndKeys) addCertsToAgent(t *testing.T, a agent.Agent, skipCa2 bool
 }
 
 func testDeps(t *testing.T) *certsAndKeys {
+	t.Helper()
 	var (
 		r   certsAndKeys
 		err error
@@ -73,8 +78,8 @@ func testDeps(t *testing.T) *certsAndKeys {
 			Key:         certKeySigner.PublicKey(),
 			CertType:    ssh.UserCert,
 			KeyId:       "test",
-			ValidAfter:  uint64(time.Now().Unix()),
-			ValidBefore: uint64(time.Now().Add(60 * time.Minute).Unix()),
+			ValidAfter:  util.CertTimestamp(time.Now()),
+			ValidBefore: util.CertTimestamp(time.Now().Add(60 * time.Minute)),
 		}
 		signer, err := ssh.NewSignerFromKey(ca)
 		checkErr(err)
@@ -158,7 +163,6 @@ func Test_filteringAgent_Add(t *testing.T) {
 		}
 	}
 	assert.True(t, addedCertFound)
-
 }
 
 func Test_filteringAgent_List(t *testing.T) {
@@ -235,7 +239,6 @@ func Test_filteringAgent_List(t *testing.T) {
 			assert.Equal(t, ssh.KeyAlgoRSA, key.(*ssh.Certificate).Key.Type())
 		}
 	})
-
 }
 
 func Test_filteringAgent_Remove(t *testing.T) {
@@ -344,4 +347,46 @@ func Test_filteringAgent_Sign(t *testing.T) {
 		_, err = fa.Sign(deps.ca2CertRsa, data)
 		assert.EqualError(t, ErrNoSuchKey, err.Error())
 	})
+}
+
+func Test_filteringAgent_AddPropagatesErrors(t *testing.T) {
+	ta := agent.NewKeyring()
+	assert.NoError(t, ta.Lock([]byte("passphrase")))
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if !assert.NoError(t, err) {
+		return
+	}
+	fa := New(ta, nil, "", "")
+	assert.Error(t, fa.Add(agent.AddedKey{PrivateKey: key}), "a failed add must not be reported as success")
+}
+
+// sshi serves every agent connection in its own goroutine, so the filtering
+// agent is used concurrently.
+func Test_filteringAgent_Concurrent(t *testing.T) {
+	ta := agent.NewKeyring()
+	fa := New(ta, nil, "", "")
+	keys := make([]ed25519.PrivateKey, 8)
+	for i := range keys {
+		_, k, err := ed25519.GenerateKey(rand.Reader)
+		require.NoError(t, err)
+		keys[i] = k
+	}
+	var wg sync.WaitGroup
+	for _, k := range keys {
+		wg.Go(func() {
+			assert.NoError(t, fa.Add(agent.AddedKey{PrivateKey: k}))
+			_, err := fa.List()
+			assert.NoError(t, err)
+			signer, err := ssh.NewSignerFromKey(k)
+			if assert.NoError(t, err) {
+				_, err = fa.Sign(signer.PublicKey(), []byte("data"))
+				assert.NoError(t, err)
+				assert.NoError(t, fa.Remove(signer.PublicKey()))
+			}
+		})
+	}
+	wg.Wait()
+	remaining, err := fa.List()
+	require.NoError(t, err)
+	assert.Empty(t, remaining)
 }

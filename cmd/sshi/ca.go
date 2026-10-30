@@ -22,7 +22,7 @@ var ShowCaCmd = &cobra.Command{
 	Short:             "Show CA public key",
 	Args:              cobra.NoArgs,
 	ValidArgsFunction: cobra.NoFileCompletions,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		c := &ui.Client{
 			Config: ClientConfig,
 		}
@@ -47,7 +47,7 @@ var AddCaCmd = &cobra.Command{
 	Use:   "add [caKeyFile]",
 	Short: "Add CA private key from file",
 	Args:  cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		if len(args) > 0 {
 			ClientConfig.CAKeyFile = args[0]
 		}
@@ -64,7 +64,7 @@ var ResponseCmd = &cobra.Command{
 	Short:             "Send a response to a CA challenge in order to decrypt and add the CA key",
 	Args:              cobra.NoArgs,
 	ValidArgsFunction: cobra.NoFileCompletions,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		c := &ui.Client{
 			Config: ClientConfig,
 		}

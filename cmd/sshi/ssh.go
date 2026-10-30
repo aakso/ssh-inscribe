@@ -44,13 +44,14 @@ func sshKnownHostnames(in []byte) []string {
 func sshHostnames(cmd *cobra.Command, args []string, toComplete string) (ret []string, compDir cobra.ShellCompDirective) {
 	compDir = cobra.ShellCompDirectiveNoFileComp
 	if len(args) != 0 {
-		return
+		return ret, compDir
 	}
 
-	ssh := exec.CommandContext(cmd.Context(), "ssh", "-G", toComplete)
+	// "--" keeps the word being completed from being parsed as an ssh option
+	ssh := exec.CommandContext(cmd.Context(), "ssh", "-G", "--", toComplete) //nolint:gosec // fixed binary, argument is a host name
 	stdout, err := ssh.StdoutPipe()
 	if err != nil || ssh.Start() != nil {
-		return
+		return ret, compDir
 	}
 	var fns []string
 	s := bufio.NewScanner(stdout)
@@ -69,7 +70,7 @@ func sshHostnames(cmd *cobra.Command, args []string, toComplete string) (ret []s
 
 	buf := make([]byte, 1024*1024)
 	for _, fn := range fns {
-		if f, err := os.Open(fn); err == nil {
+		if f, err := os.Open(fn); err == nil { //nolint:gosec // known_hosts paths reported by ssh -G
 			n, err := f.Read(buf)
 			_ = f.Close()
 			if err == nil {
@@ -77,20 +78,20 @@ func sshHostnames(cmd *cobra.Command, args []string, toComplete string) (ret []s
 			}
 		}
 	}
-	return
+	return ret, compDir
 }
 
-var SshCmd = &cobra.Command{
+var SSHCmd = &cobra.Command{
 	Use:                "ssh",
 	Short:              "Invoke ssh command with signed certificate on ssh-agent",
 	DisableFlagParsing: true,
 	ValidArgsFunction:  sshHostnames,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		ignoreFlagsAfter("ssh")
 		return runExecCommand(RootCmd.Flags().Args()[1:])
 	},
 }
 
 func init() {
-	RootCmd.AddCommand(SshCmd)
+	RootCmd.AddCommand(SSHCmd)
 }

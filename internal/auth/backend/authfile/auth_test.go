@@ -8,21 +8,22 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
 	"github.com/aakso/ssh-inscribe/internal/logging"
 )
 
-var tmpfiles []string
 var testAuth auth.Authenticator
 
-func makeFile(data string, suffix string) string {
-	file, err := os.CreateTemp("", "test")
+func makeFile(tempDir string, data string, suffix string) string {
+	file, err := os.CreateTemp(tempDir, "test")
 	if err != nil {
 		panic(err)
 	}
-	defer file.Close()
-	tmpfiles = append(tmpfiles, file.Name())
+	defer func() {
+		_ = file.Close()
+	}()
 	_, err = file.WriteString(data)
 	if err != nil {
 		panic(err)
@@ -41,11 +42,7 @@ func makeFile(data string, suffix string) string {
 
 func TestMain(m *testing.M) {
 	logging.SetLevel(logrus.DebugLevel)
-	r := m.Run()
-	for _, file := range tmpfiles {
-		os.Remove(file)
-	}
-	os.Exit(r)
+	os.Exit(m.Run())
 }
 
 func TestAuthFileParse(t *testing.T) {
@@ -63,8 +60,17 @@ users:
   password: $2a$11$aaTtm52uHC5dzqf1CEMzqOQ9Fj1sM5QzliEwmqmcON5XnuCnVUWMi # foo
   principals:
   - p1
+  criticalOptions:
+    force-command: /bin/true
+- name: user3
+  principals:
+  - p1
+- name: user4
+  password: foo
+  criticaloptions:
+    source-address: 10.0.0.0/8
 `
-	loc := makeFile(data, "yaml")
+	loc := makeFile(t.TempDir(), data, "yaml")
 	auth, err := New(&Config{
 		Path:  loc,
 		Realm: "test",
@@ -103,4 +109,32 @@ func TestAuthUnknownUser(t *testing.T) {
 	assert := assert.New(t)
 	_, ok := testAuth.Authenticate(nil, &auth.Credentials{UserIdentifier: "nonexistent", Secret: []byte("notcorrect")})
 	assert.False(ok)
+}
+
+func TestAuthEmptyPassword(t *testing.T) {
+	assert := assert.New(t)
+	_, ok := testAuth.Authenticate(nil, &auth.Credentials{UserIdentifier: "user3", Secret: nil})
+	assert.False(ok, "user without a configured password must not be able to log in")
+	_, ok = testAuth.Authenticate(nil, &auth.Credentials{UserIdentifier: "user1", Secret: nil})
+	assert.False(ok)
+}
+
+func TestAuthCriticalOptions(t *testing.T) {
+	assert := assert.New(t)
+	ctx, ok := testAuth.Authenticate(nil, &auth.Credentials{UserIdentifier: "user2", Secret: []byte("foo")})
+	if assert.True(ok) {
+		assert.Equal(map[string]string{"force-command": "/bin/true"}, ctx.GetCriticalOptions())
+	}
+	ctx, ok = testAuth.Authenticate(nil, &auth.Credentials{UserIdentifier: "user4", Secret: []byte("foo")})
+	if assert.True(ok) {
+		assert.Equal(map[string]string{"source-address": "10.0.0.0/8"}, ctx.GetCriticalOptions())
+	}
+}
+
+func TestDummyHashMatchesDefaultCost(t *testing.T) {
+	// Unknown users are compared against dummyHash to take as long as known
+	// users with a default cost hash.
+	cost, err := bcrypt.Cost(dummyHash)
+	assert.NoError(t, err)
+	assert.Equal(t, bcrypt.DefaultCost, cost)
 }

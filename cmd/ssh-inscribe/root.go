@@ -1,11 +1,12 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
 	"github.com/aakso/ssh-inscribe/internal/config"
@@ -13,7 +14,7 @@ import (
 )
 
 var cfgFile string
-var defaultCfgLoc string = path.Join(os.Getenv("HOME"), ".ssh_inscribe/config.yaml")
+var defaultCfgLoc = path.Join(os.Getenv("HOME"), ".ssh_inscribe/config.yaml")
 
 var RootCmd = &cobra.Command{
 	Use:   "ssh-inscribe",
@@ -34,7 +35,7 @@ func init() {
 func rootInit() {
 	if cfgFile != "" { // enable ability to specify config file via flag
 		err := config.LoadConfig(cfgFile)
-		if os.IsNotExist(errors.Cause(err)) && cfgFile == defaultCfgLoc {
+		if errors.Is(err, fs.ErrNotExist) && cfgFile == defaultCfgLoc {
 			return
 		}
 		if err != nil {

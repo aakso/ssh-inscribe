@@ -2,79 +2,93 @@ package server
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"runtime"
+	"strconv"
 	"time"
-
-	"github.com/aakso/ssh-inscribe/internal/globals"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
 	authbackend "github.com/aakso/ssh-inscribe/internal/auth/backend"
 	"github.com/aakso/ssh-inscribe/internal/config"
+	"github.com/aakso/ssh-inscribe/internal/globals"
 	"github.com/aakso/ssh-inscribe/internal/keysigner"
 	"github.com/aakso/ssh-inscribe/internal/server/signapi"
 	"github.com/aakso/ssh-inscribe/internal/util"
 )
+
+const minTokenSigningKeyLen = 32
 
 type Server struct {
 	config *Config
 	web    *echo.Echo
 
 	// APIs
-	signapi *signapi.SignApi
+	signapi *signapi.SignAPI
 }
 
+// Start serves the API until the server fails or is closed.
 func (s *Server) Start() error {
-	var err error
 	log := Log.WithField("server_version", globals.Version())
-	s.web.Logger.SetOutput(io.Discard)
-
-	cc, err := s.config.GetCertificateMap()
+	srv, err := s.configure()
 	if err != nil {
-		return errors.Wrap(err, "invalid certificate configuration")
+		return err
 	}
-
-	if len(cc.Certificates) > 0 {
-		// Configure TLSServer before starting
-		tlsServer := s.web.TLSServer
-		tlsServer.TLSConfig = new(tls.Config)
-
-		if len(cc.Certificates) == 1 {
-			tlsServer.TLSConfig.Certificates = make([]tls.Certificate, 1)
-			tlsServer.TLSConfig.Certificates[0] = cc.Certificates[0]
-		} else {
-			tlsServer.TLSConfig.NameToCertificate = cc.CertificateMap //nolint:staticcheck // user config
-			tlsServer.TLSConfig.Certificates = cc.Certificates
-		}
-
-		tlsServer.Addr = s.config.Listen
-		if !s.web.DisableHTTP2 {
-			tlsServer.TLSConfig.NextProtos = append(tlsServer.TLSConfig.NextProtos, "h2")
-		}
-		log.WithField("listen", fmt.Sprintf("https://%s", s.config.Listen)).WithField(
-			"certificates", fmt.Sprintf("%d", len(cc.Certificates))).Info("server starting")
-
-		err = s.web.StartServer(tlsServer)
-		if err != nil {
-			return errors.Wrap(err, "cannot start server")
-		}
+	if srv.TLSConfig != nil {
+		log.WithField("listen", "https://"+s.config.Listen).
+			WithField("certificates", strconv.Itoa(len(srv.TLSConfig.Certificates))).
+			Info("server starting")
 	} else {
-		log.WithField("listen", fmt.Sprintf("http://%s", s.config.Listen)).Warn("server starting without TLS")
-		err = s.web.Start(s.config.Listen)
+		log.WithField("listen", "http://"+s.config.Listen).Warn("server starting without TLS")
 	}
-	if err != nil {
-		return errors.Wrap(err, "cannot start server")
+	if err := s.web.StartServer(srv); err != nil {
+		return fmt.Errorf("cannot start server: %w", err)
 	}
 	return nil
 }
 
-func (s *Server) initApi() {
+// configure applies timeouts and the TLS configuration and returns the
+// server to start: the TLS server when certificates are configured.
+func (s *Server) configure() (*http.Server, error) {
+	s.web.Logger.SetOutput(io.Discard)
+
+	cc, err := s.config.GetCertificateMap()
+	if err != nil {
+		return nil, fmt.Errorf("invalid certificate configuration: %w", err)
+	}
+
+	for _, srv := range []*http.Server{s.web.Server, s.web.TLSServer} {
+		srv.Addr = s.config.Listen
+		srv.ReadHeaderTimeout = 10 * time.Second
+		srv.ReadTimeout = 30 * time.Second
+		srv.WriteTimeout = 2 * time.Minute
+		srv.IdleTimeout = 2 * time.Minute
+	}
+
+	if len(cc.Certificates) == 0 {
+		return s.web.Server, nil
+	}
+
+	tlsServer := s.web.TLSServer
+	tlsServer.TLSConfig = &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: cc.Certificates,
+	}
+	if len(cc.Certificates) > 1 {
+		tlsServer.TLSConfig.GetCertificate = cc.GetCertificate
+	}
+	if !s.web.DisableHTTP2 {
+		tlsServer.TLSConfig.NextProtos = append(tlsServer.TLSConfig.NextProtos, "h2")
+	}
+	return tlsServer, nil
+}
+
+func (s *Server) initAPI() {
 	s.web.Use(RecoverHandler(Log.Data))
 	s.web.HTTPErrorHandler = errorHandler
 	s.web.Use(RequestLogger(Log.Data))
@@ -88,7 +102,7 @@ func Build() (*Server, error) {
 	// Configuration
 	tmp, err := config.Get("server")
 	if err != nil {
-		return nil, errors.Wrap(err, "cannot initialize server")
+		return nil, fmt.Errorf("cannot initialize server: %w", err)
 	}
 	conf, _ := tmp.(*Config)
 	if conf == nil {
@@ -96,15 +110,15 @@ func Build() (*Server, error) {
 	}
 	maxlife, err := time.ParseDuration(conf.MaxCertLifetime)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid MaxCertLifeTime")
+		return nil, fmt.Errorf("invalid MaxCertLifeTime: %w", err)
 	}
 	defaultlife, err := time.ParseDuration(conf.DefaultCertLifetime)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid DefaultCertLifetime")
+		return nil, fmt.Errorf("invalid DefaultCertLifetime: %w", err)
 	}
 	caChallengeLife, err := time.ParseDuration(conf.CaChallengeLifetime)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid CaChallengeLifetime")
+		return nil, fmt.Errorf("invalid CaChallengeLifetime: %w", err)
 	}
 
 	// Auth backends
@@ -112,7 +126,7 @@ func Build() (*Server, error) {
 	for _, ab := range conf.AuthBackends {
 		instance, err := authbackend.GetBackend(ab.Type, ab.Config)
 		if err != nil {
-			return nil, errors.Wrap(err, "cannot initialize server")
+			return nil, fmt.Errorf("cannot initialize server: %w", err)
 		}
 		authList = append(authList, signapi.AuthenticatorListEntry{
 			Authenticator: instance,
@@ -121,7 +135,7 @@ func Build() (*Server, error) {
 	}
 
 	signer := keysigner.New(conf.AgentSocket, conf.CertSigningKeyFingerprint)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if signer.AgentPing() {
 			break
 		}
@@ -132,10 +146,10 @@ func Build() (*Server, error) {
 	if conf.PKCS11Provider != "" && conf.PKCS11Pin != "" {
 		// Try to readd (NitroKey issue)
 		if err = signer.RemoveSmartcard(conf.PKCS11Provider); err != nil {
-			return nil, errors.Wrap(err, "pkcs11 initialize error")
+			return nil, fmt.Errorf("pkcs11 initialize error: %w", err)
 		}
 		if err := signer.AddSmartcard(conf.PKCS11Provider, conf.PKCS11Pin); err != nil {
-			return nil, errors.Wrap(err, "pkcs11 initialize error")
+			return nil, fmt.Errorf("pkcs11 initialize error: %w", err)
 		}
 	}
 
@@ -143,6 +157,8 @@ func Build() (*Server, error) {
 	if conf.TokenSigningKey == "" {
 		Log.Info("generating random JWT token signing key as none is set")
 		conf.TokenSigningKey = util.RandB64(256)
+	} else if len(conf.TokenSigningKey) < minTokenSigningKeyLen {
+		Log.Warnf("tokenSigningKey is shorter than %d characters, consider a longer random value", minTokenSigningKeyLen)
 	}
 
 	// Signing API
@@ -153,7 +169,7 @@ func Build() (*Server, error) {
 		web:     echo.New(),
 		signapi: signapi,
 	}
-	s.initApi()
+	s.initAPI()
 	return s, nil
 }
 
@@ -165,9 +181,10 @@ func handleVersion(c echo.Context) error {
 func errorHandler(err error, c echo.Context) {
 	var (
 		code = http.StatusInternalServerError
-		msg  interface{}
+		msg  any
 	)
-	if he, ok := err.(*echo.HTTPError); ok {
+	he := &echo.HTTPError{}
+	if errors.As(err, &he) {
 		code = he.Code
 		msg = he.Message
 	} else {
