@@ -59,6 +59,9 @@ users:
   password: $2a$11$aaTtm52uHC5dzqf1CEMzqOQ9Fj1sM5QzliEwmqmcON5XnuCnVUWMi # foo
   principals:
   - p1
+- name: user3
+  principals:
+  - p1
 `
 	loc := makeFile(t.TempDir(), data, "yaml")
 	auth, err := New(&Config{
@@ -98,5 +101,13 @@ func TestAuthBcryptFail(t *testing.T) {
 func TestAuthUnknownUser(t *testing.T) {
 	assert := assert.New(t)
 	_, ok := testAuth.Authenticate(nil, &auth.Credentials{UserIdentifier: "nonexistent", Secret: []byte("notcorrect")})
+	assert.False(ok)
+}
+
+func TestAuthEmptyPassword(t *testing.T) {
+	assert := assert.New(t)
+	_, ok := testAuth.Authenticate(nil, &auth.Credentials{UserIdentifier: "user3", Secret: nil})
+	assert.False(ok, "user without a configured password must not be able to log in")
+	_, ok = testAuth.Authenticate(nil, &auth.Credentials{UserIdentifier: "user1", Secret: nil})
 	assert.False(ok)
 }
