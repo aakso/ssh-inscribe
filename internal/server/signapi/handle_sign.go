@@ -71,17 +71,25 @@ func (sa *SignAPI) HandleSign(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "a plain public key is required, not a certificate")
 	}
 
+	// sshd principals= options split certificate principals on commas, so
+	// such a principal could grant access as several others.
+	if _, unsafe := auth.SplitUnsafePrincipals(actx.GetPrincipals()); len(unsafe) > 0 {
+		for _, p := range unsafe {
+			log.WithField("principal", p).
+				Warn("dropping unsafe principal: empty or contains a comma or control character")
+		}
+		actx = &auth.AuthContext{
+			Status:           auth.StatusCompleted,
+			Parent:           actx,
+			RemovePrincipals: unsafe,
+		}
+	}
+
 	// OpenSSH treats a certificate without principals as valid for any
 	// principal in some configurations, so never issue one.
 	if len(actx.GetPrincipals()) == 0 {
 		log.Warn("refusing to issue a certificate without principals")
 		return echo.NewHTTPError(http.StatusForbidden, "no principals available for the certificate")
-	}
-	for _, p := range actx.GetPrincipals() {
-		if auth.UnsafePrincipal(p) {
-			log.WithField("principal", p).
-				Warn("principal contains a comma or control character; sshd principals= options may match it as several principals")
-		}
 	}
 
 	validBefore := time.Now().Add(sa.defaultCertLife)
