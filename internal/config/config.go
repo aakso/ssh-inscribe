@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ghodss/yaml"
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/mitchellh/copystructure"
+	"sigs.k8s.io/yaml"
 )
 
 var globalConfig map[string]interface{} = make(map[string]interface{})

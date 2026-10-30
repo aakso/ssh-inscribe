@@ -24,7 +24,6 @@ import (
 	"github.com/blang/semver/v4"
 	"github.com/chzyer/readline"
 	"github.com/go-resty/resty/v2"
-	"github.com/labstack/gommon/log"
 	"github.com/skratchdot/open-golang/open"
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/crypto/ssh"
@@ -797,6 +796,7 @@ outer:
 
 // parsePrivateKey parses the private key and decrypts it if necessary.
 func (c *Client) parsePrivateKey(raw []byte, desc string) (interface{}, error) {
+	log := Log.WithField("action", "parsePrivateKey")
 	var (
 		secret []byte
 		key    interface{}

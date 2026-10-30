@@ -9,9 +9,9 @@ import (
 	echojwt "github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/labstack/gommon/random"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
+	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
 func (sa *SignApi) RegisterRoutes(g *echo.Group) {
@@ -101,7 +101,7 @@ func auditID() echo.MiddlewareFunc {
 				}
 			} else {
 				// Instantiate new audit id otherwise
-				rid := random.String(32)
+				rid := util.RandAlphanumeric(32)
 				c.Response().Header().Set(echo.HeaderXRequestID, rid)
 			}
 			return next(c)

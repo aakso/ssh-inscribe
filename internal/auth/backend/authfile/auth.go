@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/sirupsen/logrus"
+	"go.yaml.in/yaml/v2"
 	"golang.org/x/crypto/bcrypt"
-	yaml "gopkg.in/yaml.v2"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
 )
