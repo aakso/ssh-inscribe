@@ -14,3 +14,13 @@ func TestUnsafePrincipal(t *testing.T) {
 		assert.True(t, UnsafePrincipal(p), p)
 	}
 }
+
+func TestSplitUnsafePrincipals(t *testing.T) {
+	safe, unsafe := SplitUnsafePrincipals([]string{"b", "x,admins", "a", "", "c\n"})
+	assert.Equal(t, []string{"b", "a"}, safe)
+	assert.Equal(t, []string{"x,admins", "", "c\n"}, unsafe)
+
+	safe, unsafe = SplitUnsafePrincipals(nil)
+	assert.Empty(t, safe)
+	assert.Empty(t, unsafe)
+}
