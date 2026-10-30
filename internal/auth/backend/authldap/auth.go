@@ -67,7 +67,7 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		Authenticator:   al.Name(),
 	}
 	if newctx.AuthMeta == nil {
-		newctx.AuthMeta = make(map[string]interface{})
+		newctx.AuthMeta = make(map[string]any)
 	}
 
 	// Add username as principal if configured
@@ -76,7 +76,7 @@ func (al *AuthLDAP) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 	}
 
 	// Template context is passed to all templates
-	tplCtx := map[string]interface{}{
+	tplCtx := map[string]any{
 		"UserName": creds.UserIdentifier,
 	}
 
@@ -161,15 +161,15 @@ func (al *AuthLDAP) dial() (*ldap.Conn, error) {
 // filterContext returns a copy of the template context where every value
 // that may originate from the user or the directory is escaped for use in an
 // LDAP search filter (RFC 4515).
-func filterContext(tplCtx map[string]interface{}) map[string]interface{} {
-	ret := make(map[string]interface{}, len(tplCtx))
+func filterContext(tplCtx map[string]any) map[string]any {
+	ret := make(map[string]any, len(tplCtx))
 	for k, v := range tplCtx {
 		ret[k] = escapeFilterValue(v)
 	}
 	return ret
 }
 
-func escapeFilterValue(v interface{}) interface{} {
+func escapeFilterValue(v any) any {
 	switch v := v.(type) {
 	case string:
 		return ldap.EscapeFilter(v)
@@ -208,7 +208,7 @@ func (al *AuthLDAP) search(conn *ldap.Conn, base, filter string, attrs []string)
 	return conn.Search(sr)
 }
 
-func (al *AuthLDAP) RenderTpl(name string, data interface{}) string {
+func (al *AuthLDAP) RenderTpl(name string, data any) string {
 	buf := bytes.NewBuffer([]byte{})
 	err := al.tpls.ExecuteTemplate(buf, name, data)
 	if err != nil {
@@ -293,7 +293,7 @@ func New(conf *Config) (*AuthLDAP, error) {
 	}, nil
 }
 
-type EntryMap map[string]interface{}
+type EntryMap map[string]any
 
 func (em EntryMap) DN() string {
 	return em.Get("dn")
@@ -312,7 +312,7 @@ func (em EntryMap) Get(k string) string {
 }
 
 func entryToMap(entry *ldap.Entry) EntryMap {
-	ret := make(map[string]interface{})
+	ret := make(map[string]any)
 	ret["dn"] = []string{entry.DN}
 	for _, v := range entry.Attributes {
 		if len(v.Values) == 1 {

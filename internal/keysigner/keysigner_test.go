@@ -77,15 +77,15 @@ lg08jQ8z4TIRwkCmcmw6C/WnW2UShkGIU75umZadDtSsof06MtBEOgIXmgx7xKTb
 mU5fO7aSgagjS0fJXWqa2w8oYFTG1dGDg+H0tHvYyH7dTPtEfhM8FV8=
 -----END RSA PRIVATE KEY-----`)
 	testUserPublic       = []byte(`ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC32gyZOLC0RHDntCk+0T5pDNYYytfmP/Jzx+tpqNGEuCWnOV9PwBLdRPT2SNIzCq1GBQWYg63GZ4qWbuvSBvo904Y69q0RWugbcNjpclzkJGT0Bl50l/ppeuJ8wLVFnguCH92E2ja/8tiIPtetKGmFDdSTETIRshGUE6PnuPy2/1BL1ES55XfOGLcvzf/yDi+JeuwQqWi8YMxAIm8ug0yn4GPBPK/MNpnMG3AQmwmviQT6nC6Ky/B9VJk2418v++lAgKRXwyqUeaHd2jAj+5lQ72zc3mZjwFnwTZJWySaGtqxQea9l1wYOhZOEyV4+KOgfLoZ3ps+vmMLGSxmnGmAj user`)
-	testCaPrivate        interface{}
-	testCaPrivateInvalid interface{}
-	socketPath           string = path.Join(os.TempDir(), "keysignertest")
-	certValidBefore      uint64 = uint64(time.Date(2050, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
+	testCaPrivate        any
+	testCaPrivateInvalid any
+	socketPath           = path.Join(os.TempDir(), "keysignertest")
+	certValidBefore      = uint64(time.Date(2050, 1, 1, 0, 0, 0, 0, time.UTC).Unix())
 
-	socketPathSmartCard string = path.Join(os.TempDir(), "keysignertestsmartcard")
-	smartCardId                = os.Getenv("TEST_SMARTCARD_ID")
-	smartCardPin               = os.Getenv("TEST_SMARTCARD_PIN")
-	benchSmartCard             = os.Getenv("TEST_SMARTCARD_BENCH")
+	socketPathSmartCard = path.Join(os.TempDir(), "keysignertestsmartcard")
+	smartCardID         = os.Getenv("TEST_SMARTCARD_ID")
+	smartCardPin        = os.Getenv("TEST_SMARTCARD_PIN")
+	benchSmartCard      = os.Getenv("TEST_SMARTCARD_BENCH")
 	smartCardSrv        *KeySignerService
 )
 
@@ -103,7 +103,7 @@ func wait(fn func() bool) bool {
 	}
 }
 
-func addKey(srv *KeySignerService, key interface{}) {
+func addKey(srv *KeySignerService, key any) {
 	err := srv.client.Add(agent.AddedKey{
 		PrivateKey: key,
 		Comment:    "test ca",
@@ -161,12 +161,12 @@ func setup() {
 	if err != nil {
 		panic(err)
 	}
-	if benchSmartCard != "" && smartCardId != "" && smartCardPin != "" {
+	if benchSmartCard != "" && smartCardID != "" && smartCardPin != "" {
 		smartCardSrv = New(socketPathSmartCard, "")
 		if !wait(smartCardSrv.AgentPing) {
 			panic("agent doesn't respond")
 		}
-		err = smartCardSrv.AddSmartcard(smartCardId, smartCardPin)
+		err = smartCardSrv.AddSmartcard(smartCardID, smartCardPin)
 		if err != nil {
 			panic(err)
 		}
@@ -179,7 +179,7 @@ func setup() {
 func teardown() {
 	fmt.Println("Teardown")
 	if smartCardSrv != nil {
-		if err := smartCardSrv.RemoveSmartcard(smartCardId); err != nil {
+		if err := smartCardSrv.RemoveSmartcard(smartCardID); err != nil {
 			fmt.Printf("remove smart card: %v\n", err)
 		}
 		smartCardSrv.Close()
@@ -320,7 +320,7 @@ func TestGetPublicKey(t *testing.T) {
 
 // This test assumes there is usable key on the smartcard
 func TestAddSmartCard(t *testing.T) {
-	if smartCardId == "" || smartCardPin == "" {
+	if smartCardID == "" || smartCardPin == "" {
 		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PIN set")
 	}
 	srv := New(socketPath, "")
@@ -328,19 +328,19 @@ func TestAddSmartCard(t *testing.T) {
 	defer srv.Close()
 
 	assert.True(t, wait(srv.AgentPing))
-	err := srv.AddSmartcard(smartCardId, smartCardPin)
+	err := srv.AddSmartcard(smartCardID, smartCardPin)
 	if assert.NoError(t, err) {
 		assert.True(t, wait(srv.Ready))
 		assert.True(t, len(srv.knownSmartCardKeys) > 0)
 	}
-	err = srv.RemoveSmartcard(smartCardId)
+	err = srv.RemoveSmartcard(smartCardID)
 	assert.NoError(t, err)
 	assert.True(t, len(srv.knownSmartCardKeys) == 0)
 }
 
 // This test assumes there is usable key on the smartcard
 func TestSmartCardSessionRecovery(t *testing.T) {
-	if smartCardId == "" || smartCardPin == "" {
+	if smartCardID == "" || smartCardPin == "" {
 		t.Skip("No TEST_SMARTCARD_ID or TEST_SMARTCARD_PIN set")
 	}
 	srv := New(socketPath, "")
@@ -348,7 +348,7 @@ func TestSmartCardSessionRecovery(t *testing.T) {
 	defer srv.Close()
 	assert.True(t, wait(srv.AgentPing))
 
-	err := srv.AddSmartcard(smartCardId, smartCardPin)
+	err := srv.AddSmartcard(smartCardID, smartCardPin)
 	if assert.NoError(t, err) {
 		assert.True(t, wait(srv.Ready))
 		assert.True(t, len(srv.knownSmartCardKeys) > 0)

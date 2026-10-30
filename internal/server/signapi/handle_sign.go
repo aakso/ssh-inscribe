@@ -19,7 +19,7 @@ import (
 
 const minimumPrincipalsBatchSize = 10
 
-func (sa *SignApi) HandleSign(c echo.Context) error {
+func (sa *SignAPI) HandleSign(c echo.Context) error {
 	var actx *auth.AuthContext
 	if token, _ := c.Get("user").(*jwt.Token); token != nil {
 		if claims, _ := token.Claims.(*SignClaim); claims != nil {
@@ -48,12 +48,12 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Errorf("cannot parse principal filter: %w", err))
 		}
-		if ctx, ok := authz.Authorize(actx); !ok {
+		ctx, ok := authz.Authorize(actx)
+		if !ok {
 			log.Error("user requested principal filter failed, this should not happen")
 			return echo.ErrUnauthorized
-		} else {
-			actx = ctx
 		}
+		actx = ctx
 	}
 
 	body, err := io.ReadAll(c.Request().Body)
@@ -139,8 +139,8 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 			WithField("principals", cert.ValidPrincipals).
 			WithField("critical_options", cert.CriticalOptions).
 			WithField("extensions", cert.Extensions).
-			WithField("not_before", time.Unix(int64(cert.ValidAfter), 0)).
-			WithField("expires", time.Unix(int64(cert.ValidBefore), 0)).
+			WithField("not_before", util.CertTime(cert.ValidAfter)).
+			WithField("expires", util.CertTime(cert.ValidBefore)).
 			WithField("pubkey_fp", ssh.FingerprintSHA256(pubKey)).
 			WithField("pubkey_fp_md5", ssh.FingerprintLegacyMD5(pubKey)).
 			WithField("signature_format", cert.Signature.Format).

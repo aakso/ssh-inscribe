@@ -6,7 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func (sa *SignApi) HandleReady(c echo.Context) error {
+func (sa *SignAPI) HandleReady(c echo.Context) error {
 	if !sa.signer.Ready() {
 		return echo.NewHTTPError(http.StatusInternalServerError, "signing service is not ready for signing")
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -29,7 +30,7 @@ var ExecCmd = &cobra.Command{
 	Short:              "Invoke any command with signed certificate on ssh-agent",
 	DisableFlagParsing: true,
 	ValidArgsFunction:  cobra.NoFileCompletions,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		ignoreFlagsAfter("exec")
 		return runExecCommand(RootCmd.Flags().Args()[2:])
 	},
@@ -115,9 +116,7 @@ func runExecCommand(args []string) error {
 
 func startAdhocAgent(ln net.Listener, agentImpl agent.Agent) {
 	log := Log.WithField("worker", "adhocAgent")
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
@@ -142,7 +141,7 @@ func startAdhocAgent(ln net.Listener, agentImpl agent.Agent) {
 				log.Debug("connection closed")
 			}(conn)
 		}
-	}()
+	})
 	log.Debug("agent started")
 }
 
@@ -155,7 +154,7 @@ func runCommand(args []string) error {
 	if err != nil {
 		return fmt.Errorf("%s binary not found", args[0])
 	}
-	proc := exec.Command(bin, args[1:]...)
+	proc := exec.CommandContext(context.Background(), bin, args[1:]...) //nolint:gosec // running the user supplied command is the purpose of sshi exec/ssh
 	proc.Stdin = os.Stdin
 	proc.Stdout = os.Stdout
 	proc.Stderr = os.Stderr

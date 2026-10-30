@@ -14,7 +14,7 @@ import (
 	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
-func (sa *SignApi) RegisterRoutes(g *echo.Group) {
+func (sa *SignAPI) RegisterRoutes(g *echo.Group) {
 	g.GET("/auth", sa.HandleAuthDiscover)
 	g.POST("/auth/:name",
 		sa.HandleLogin,
@@ -49,8 +49,8 @@ func jwtAuth(key []byte, skipIfMissing bool) echo.MiddlewareFunc {
 		SigningKey:  key,
 		TokenLookup: "header:" + authHeader,
 		// ref: https://echo.labstack.com/middleware/jwt/
-		ParseTokenFunc: func(c echo.Context, auth string) (interface{}, error) {
-			keyFunc := func(t *jwt.Token) (interface{}, error) {
+		ParseTokenFunc: func(_ echo.Context, auth string) (any, error) {
+			keyFunc := func(t *jwt.Token) (any, error) {
 				if t.Method.Alg() != "HS256" {
 					return nil, fmt.Errorf("unexpected jwt signing method=%v", t.Header["alg"])
 				}

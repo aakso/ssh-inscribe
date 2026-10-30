@@ -12,7 +12,7 @@ type Config struct {
 	Path  string
 }
 
-var Defaults *Config = &Config{
+var Defaults = &Config{
 	Name:  DefaultName,
 	Realm: DefaultRealm,
 	Path:  path.Join(globals.ConfDir(), "auth_users.yaml"),

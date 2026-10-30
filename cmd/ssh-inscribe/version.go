@@ -15,7 +15,7 @@ var versionCmd = &cobra.Command{
 	Long:              "Show server version",
 	Args:              cobra.NoArgs,
 	ValidArgsFunction: cobra.NoFileCompletions,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		fmt.Println(globals.Version())
 		return nil
 	},

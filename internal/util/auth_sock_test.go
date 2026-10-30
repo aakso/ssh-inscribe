@@ -16,7 +16,7 @@ func TestCheckSocketPath(t *testing.T) {
 	dir := t.TempDir()
 
 	sock := filepath.Join(dir, "agent.sock")
-	ln, err := net.Listen("unix", sock)
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", sock)
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -39,17 +39,24 @@ type fakeFileInfo struct {
 	uid uint32
 }
 
-func (f fakeFileInfo) Sys() interface{} { return &syscall.Stat_t{Uid: f.uid} }
+func (f fakeFileInfo) Sys() any { return &syscall.Stat_t{Uid: f.uid} }
 
 func TestCheckPlantedByOtherUser(t *testing.T) {
 	shared := t.TempDir()
-	assert.NoError(t, os.Chmod(shared, 0o1777))
+	// The scenario under test is a world-writable directory such as /tmp
+	assert.NoError(t, os.Chmod(shared, 0o1777)) //nolint:gosec // intentionally world-writable, see above
 	private := t.TempDir()
 
-	other := fakeFileInfo{uid: uint32(os.Getuid()) + 4242}
+	fi, err := os.Stat(private)
+	if !assert.NoError(t, err) {
+		return
+	}
+	self := fi.Sys().(*syscall.Stat_t).Uid
+
+	other := fakeFileInfo{uid: self + 4242}
 	assert.Error(t, checkPlantedByOtherUser(filepath.Join(shared, "s"), other))
 	assert.NoError(t, checkPlantedByOtherUser(filepath.Join(private, "s"), other))
 
 	assert.NoError(t, checkPlantedByOtherUser(filepath.Join(shared, "s"), fakeFileInfo{uid: 0}))
-	assert.NoError(t, checkPlantedByOtherUser(filepath.Join(shared, "s"), fakeFileInfo{uid: uint32(os.Getuid())}))
+	assert.NoError(t, checkPlantedByOtherUser(filepath.Join(shared, "s"), fakeFileInfo{uid: self}))
 }

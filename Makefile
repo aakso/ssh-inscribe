@@ -21,7 +21,7 @@ build:
 .PHONY: test
 test:
 	go test $(NORACE_PKGS)
-	go test -race ./internal/...
+	go test -race ./...
 
 .PHONY: vet
 vet:
@@ -32,9 +32,17 @@ vet:
 fmt-check:
 	@out="$$(gofmt -l cmd internal)"; if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
+GOLANGCI_LINT = go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
+# sshi is also built for Windows, lint those files too
 .PHONY: lint
 lint:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
+	$(GOLANGCI_LINT) run ./...
+	GOOS=windows $(GOLANGCI_LINT) run ./...
+
+.PHONY: fmt
+fmt:
+	$(GOLANGCI_LINT) fmt ./...
 
 .PHONY: vuln
 vuln:

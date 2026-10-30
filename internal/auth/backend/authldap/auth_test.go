@@ -1,10 +1,8 @@
 //go:build !race
-// +build !race
 
 package authldap
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -41,7 +39,7 @@ func initServer() {
 	testServer = newTestServer(logger)
 	time.Sleep(50 * time.Millisecond)
 	// This causes race detector to freak out. Unfortunately no way to fix it with dynamic port selection
-	testConf.ServerURL = fmt.Sprintf("ldap://%s", testServer.Listener.Addr().String())
+	testConf.ServerURL = "ldap://" + testServer.Listener.Addr().String()
 	testConf.UserBindDN = "{{.UserName}}"
 }
 
@@ -117,7 +115,7 @@ func TestSearchFilterEscaping(t *testing.T) {
 	if !assert.NoError(err) {
 		return
 	}
-	tplCtx := map[string]interface{}{
+	tplCtx := map[string]any{
 		"UserName": "alice)(sAMAccountName=*",
 		"User": EntryMap{
 			"dn": []string{"CN=Smith\\, John (ext),OU=Users,DC=example,DC=com"},

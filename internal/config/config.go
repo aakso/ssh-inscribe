@@ -10,11 +10,11 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-var globalConfig map[string]interface{} = make(map[string]interface{})
-var globalDefaults map[string]interface{} = make(map[string]interface{})
+var globalConfig = make(map[string]any)
+var globalDefaults = make(map[string]any)
 
 func LoadConfig(loc string) error {
-	data, err := os.ReadFile(loc)
+	data, err := os.ReadFile(loc) //nolint:gosec // configuration file chosen by the administrator
 	if err != nil {
 		return fmt.Errorf("cannot load configuration: %w", err)
 	}
@@ -30,7 +30,7 @@ func LoadBytes(data []byte) error {
 }
 
 // Get value by section and merge defaults
-func Get(section string) (interface{}, error) {
+func Get(section string) (any, error) {
 	val := getLoaded(section)
 	def := GetDefault(section)
 	switch {
@@ -50,36 +50,36 @@ func Get(section string) (interface{}, error) {
 }
 
 // Return submap with key "section1.section2"
-func getLoaded(section string) interface{} {
+func getLoaded(section string) any {
 	return findValue(strings.Split(section, "."), globalConfig)
 }
-func findValue(remaining []string, conf map[string]interface{}) interface{} {
+func findValue(remaining []string, conf map[string]any) any {
 	section := remaining[0]
 	val, ok := conf[section]
 	if !ok {
 		return nil
 	}
-	if mapval, ok := val.(map[string]interface{}); ok && len(remaining) > 1 {
+	if mapval, ok := val.(map[string]any); ok && len(remaining) > 1 {
 		return findValue(remaining[1:], mapval)
 	}
 	return val
 }
 
-func SetDefault(path string, defaults interface{}) {
+func SetDefault(path string, defaults any) {
 	p := strings.Split(path, ".")
 	setDefault(p, globalDefaults, defaults)
 }
 
-func setDefault(remaining []string, conf map[string]interface{}, defaults interface{}) {
+func setDefault(remaining []string, conf map[string]any, defaults any) {
 	section := remaining[0]
 	val, ok := conf[section]
 	if !ok {
-		val = make(map[string]interface{})
+		val = make(map[string]any)
 		conf[section] = val
 	}
-	mapval, ok := val.(map[string]interface{})
+	mapval, ok := val.(map[string]any)
 	if !ok {
-		mapval = make(map[string]interface{})
+		mapval = make(map[string]any)
 		conf[section] = mapval
 	}
 	if len(remaining) > 1 {
@@ -89,23 +89,23 @@ func setDefault(remaining []string, conf map[string]interface{}, defaults interf
 	}
 }
 
-func GetDefault(section string) interface{} {
+func GetDefault(section string) any {
 	tmp := findValue(strings.Split(section, "."), globalDefaults)
 	if tmp == nil {
 		return nil
 	}
-	copy, err := copystructure.Copy(tmp)
+	c, err := copystructure.Copy(tmp)
 	if err != nil {
 		return nil
 	}
-	return copy
+	return c
 }
 
-func GetAllDefaults() map[string]interface{} {
-	copy, err := copystructure.Copy(globalDefaults)
+func GetAllDefaults() map[string]any {
+	c, err := copystructure.Copy(globalDefaults)
 	if err != nil {
 		return nil
 	}
-	ret, _ := copy.(map[string]interface{})
+	ret, _ := c.(map[string]any)
 	return ret
 }

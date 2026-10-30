@@ -7,6 +7,8 @@ import (
 	"unicode"
 
 	"golang.org/x/crypto/ssh"
+
+	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
 func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validBefore time.Time, maxPrincipalsPerCert int) []*ssh.Certificate {
@@ -23,10 +25,7 @@ func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validBefore time.Tim
 	}
 	var certs []*ssh.Certificate
 	for {
-		pos := len(remainingPrincipals)
-		if pos > maxPrincipalsPerCert {
-			pos = maxPrincipalsPerCert
-		}
+		pos := min(len(remainingPrincipals), maxPrincipalsPerCert)
 		principals := remainingPrincipals[:pos]
 		remainingPrincipals = remainingPrincipals[pos:]
 
@@ -35,8 +34,8 @@ func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validBefore time.Tim
 			CertType:        ssh.UserCert,
 			KeyId:           kid.String(),
 			ValidPrincipals: principals,
-			ValidAfter:      uint64(time.Now().Unix()),
-			ValidBefore:     uint64(validBefore.Unix()),
+			ValidAfter:      util.CertTimestamp(time.Now()),
+			ValidBefore:     util.CertTimestamp(validBefore),
 			Permissions: ssh.Permissions{
 				CriticalOptions: actx.GetCriticalOptions(),
 				Extensions:      actx.GetExtensions(),

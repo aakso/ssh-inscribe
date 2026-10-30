@@ -18,7 +18,7 @@ var defaultsCmd = &cobra.Command{
 	Long:              `Print configuration defaults`,
 	Args:              cobra.NoArgs,
 	ValidArgsFunction: cobra.NoFileCompletions,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, _ []string) error {
 		out, _ := yaml.Marshal(config.GetAllDefaults())
 		fmt.Println(string(out))
 		return nil

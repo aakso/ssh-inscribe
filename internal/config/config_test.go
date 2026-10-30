@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var loadConf []byte = []byte(
+var loadConf = []byte(
 	`
 test1:
   test2:
@@ -22,7 +22,7 @@ type testConf struct {
 	SecondField int
 }
 
-var testDefaults *testConf = &testConf{
+var testDefaults = &testConf{
 	FirstField:  "test",
 	SecondField: 123,
 }

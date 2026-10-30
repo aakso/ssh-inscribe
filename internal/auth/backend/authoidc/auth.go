@@ -32,7 +32,7 @@ const (
 )
 
 type entryState struct {
-	claims map[string]interface{}
+	claims map[string]any
 	ts     time.Time
 
 	// PKCE code verifier and OIDC nonce bound to this auth request
@@ -76,7 +76,7 @@ func (ao *AuthOIDC) saveState(state string, entry entryState) error {
 
 // Attach claims to a pending request. Only the first successful callback
 // for a state is accepted.
-func (ao *AuthOIDC) setClaims(state string, claims map[string]interface{}) error {
+func (ao *AuthOIDC) setClaims(state string, claims map[string]any) error {
 	ao.Lock()
 	defer ao.Unlock()
 	e, ok := ao.pendingRequests[state]
@@ -117,10 +117,10 @@ func (ao *AuthOIDC) evictExpiredLocked() {
 	}
 }
 
-func (ao *AuthOIDC) startFlow(pctx *auth.AuthContext, meta map[string]interface{}) (*auth.AuthContext, bool) {
+func (ao *AuthOIDC) startFlow(pctx *auth.AuthContext, meta map[string]any) (*auth.AuthContext, bool) {
 	log := ao.log.WithField("action", "startFlow")
 	if meta == nil {
-		meta = map[string]interface{}{}
+		meta = map[string]any{}
 	}
 	// State will be used as a key to the cache containing the pending actx
 	state := newRandomState()
@@ -207,7 +207,7 @@ func (ao *AuthOIDC) CredentialType() string {
 	return auth.CredentialFederated
 }
 
-func (ao *AuthOIDC) FederationCallback(data interface{}) error {
+func (ao *AuthOIDC) FederationCallback(data any) error {
 	log := ao.log.WithField("action", "callback")
 	resp, ok := data.(url.Values)
 	if !ok {
@@ -261,7 +261,7 @@ func (ao *AuthOIDC) FederationCallback(data interface{}) error {
 	return nil
 }
 
-func (ao *AuthOIDC) fillAuthContext(actx *auth.AuthContext, claims map[string]interface{}) error {
+func (ao *AuthOIDC) fillAuthContext(actx *auth.AuthContext, claims map[string]any) error {
 	if err := ao.checkEmailVerified(claims); err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func (ao *AuthOIDC) fillAuthContext(actx *auth.AuthContext, claims map[string]in
 
 // The email claim is only trustworthy if the provider has verified it.
 // Some providers let users set an arbitrary address.
-func (ao *AuthOIDC) checkEmailVerified(claims map[string]interface{}) error {
+func (ao *AuthOIDC) checkEmailVerified(claims map[string]any) error {
 	if !ao.config.RequireVerifiedEmail {
 		return nil
 	}
@@ -317,7 +317,7 @@ func (ao *AuthOIDC) checkEmailVerified(claims map[string]interface{}) error {
 }
 
 // Extract idtoken and fill auth context
-func (ao *AuthOIDC) validateToken(token *oauth2.Token, nonce string) (map[string]interface{}, error) {
+func (ao *AuthOIDC) validateToken(token *oauth2.Token, nonce string) (map[string]any, error) {
 	log := ao.log.WithField("action", "validateToken")
 	jwtToken, ok := token.Extra("id_token").(string)
 	if !ok {
@@ -332,7 +332,7 @@ func (ao *AuthOIDC) validateToken(token *oauth2.Token, nonce string) (map[string
 	if subtle.ConstantTimeCompare([]byte(IDToken.Nonce), []byte(nonce)) != 1 {
 		return nil, errors.New("verify error: nonce mismatch")
 	}
-	claims := map[string]interface{}{}
+	claims := map[string]any{}
 	if err = IDToken.Claims(&claims); err != nil {
 		return nil, fmt.Errorf("claims unmarshal error: %w", err)
 	}
@@ -341,7 +341,7 @@ func (ao *AuthOIDC) validateToken(token *oauth2.Token, nonce string) (map[string
 	return claims, nil
 }
 
-func (ao *AuthOIDC) renderTpl(name string, data interface{}) string {
+func (ao *AuthOIDC) renderTpl(name string, data any) string {
 	buf := bytes.NewBuffer([]byte{})
 	err := ao.tpls.ExecuteTemplate(buf, name, data)
 	if err != nil {
@@ -350,10 +350,10 @@ func (ao *AuthOIDC) renderTpl(name string, data interface{}) string {
 	return buf.String()
 }
 
-func selectStringSlice(m map[string]interface{}, k string) []string {
+func selectStringSlice(m map[string]any, k string) []string {
 	var r []string
 	if v, ok := m[k]; ok {
-		if slice, ok := v.([]interface{}); ok {
+		if slice, ok := v.([]any); ok {
 			for _, e := range slice {
 				r = append(r, fmt.Sprintf("%s", e))
 			}
@@ -362,7 +362,7 @@ func selectStringSlice(m map[string]interface{}, k string) []string {
 	return r
 }
 
-func selectString(m map[string]interface{}, k string) string {
+func selectString(m map[string]any, k string) string {
 	if v, ok := m[k]; ok {
 		if s, ok := v.(string); ok {
 			return s
@@ -372,10 +372,9 @@ func selectString(m map[string]interface{}, k string) string {
 }
 
 func New(config *Config) (*AuthOIDC, error) {
-	if config.ClientId == "" ||
+	if config.ClientID == "" ||
 		config.ClientSecret == "" ||
 		config.ProviderURL == "" {
-
 		return nil, fmt.Errorf("%s: required config items: clientId, clientSecret, authURL, tokenURL", config.Name)
 	}
 	log := Log.WithFields(logrus.Fields{
@@ -413,13 +412,13 @@ func New(config *Config) (*AuthOIDC, error) {
 		oauthConfig: &oauth2.Config{
 			RedirectURL:  config.RedirectURL,
 			Endpoint:     provider.Endpoint(),
-			ClientID:     config.ClientId,
+			ClientID:     config.ClientID,
 			ClientSecret: config.ClientSecret,
 			Scopes:       config.Scopes,
 		},
 		provider: provider,
 		verifier: provider.Verifier(&oidc.Config{
-			ClientID: config.ClientId,
+			ClientID: config.ClientID,
 		}),
 		log: Log.WithFields(logrus.Fields{
 			"realm": config.Realm,

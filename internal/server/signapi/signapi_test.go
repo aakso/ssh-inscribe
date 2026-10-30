@@ -59,7 +59,7 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 	fakeAuthContext auth.AuthContext = auth.AuthContext{
 		Principals:      genFakePrincipals(),
 		CriticalOptions: map[string]string{"test": "fake"},
-		AuthMeta:        map[string]interface{}{auth.MetaAuditID: "fake"},
+		AuthMeta:        map[string]any{auth.MetaAuditID: "fake"},
 	}
 
 	authenticator *authmock.AuthMock = &authmock.AuthMock{
@@ -69,17 +69,17 @@ BOKQEAfMgR02w/4NuPb3mX27mk74/MKvR4ixv2zK6ExBL4u4ICdS
 		AuthRealm:   "testrealm",
 		AuthContext: fakeAuthContext,
 	}
-	socketPath          string = path.Join(os.TempDir(), "signapitest")
-	signingKey          []byte = []byte("testkey")
-	caChallengeLifetime        = 3 * time.Second
+	socketPath          = path.Join(os.TempDir(), "signapitest")
+	signingKey          = []byte("testkey")
+	caChallengeLifetime = 3 * time.Second
 )
 
 // genNumPrincipals sets the number of principals to test. OpenSSH has SSHKEY_CERT_MAX_PRINCIPALS set to 256.
 const genNumPrincipals = 257
 
 func genFakePrincipals() []string {
-	var principals []string
-	for i := 0; i < genNumPrincipals; i++ {
+	principals := make([]string, 0, genNumPrincipals)
+	for i := range genNumPrincipals {
 		principals = append(principals, fmt.Sprintf("fake%d", i))
 	}
 	return principals
@@ -90,9 +90,9 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func withApi(fn func(e *echo.Echo, signapi *SignApi)) {
+func withAPI(fn func(e *echo.Echo, signapi *SignAPI)) {
 	signer := keysigner.New(socketPath, "")
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if signer.AgentPing() {
 			break
 		}
@@ -121,8 +121,8 @@ func withApi(fn func(e *echo.Echo, signapi *SignApi)) {
 }
 
 func TestDiscovery(t *testing.T) {
-	withApi(func(e *echo.Echo, signapi *SignApi) {
-		req, _ := http.NewRequest(echo.GET, "/v1/auth", nil)
+	withAPI(func(e *echo.Echo, _ *SignAPI) {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/auth", nil)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusOK, rec.Code)
@@ -130,8 +130,8 @@ func TestDiscovery(t *testing.T) {
 }
 
 func TestNotReady(t *testing.T) {
-	withApi(func(e *echo.Echo, signapi *SignApi) {
-		req, _ := http.NewRequest(echo.GET, "/v1/ready", nil)
+	withAPI(func(e *echo.Echo, _ *SignAPI) {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/ready", nil)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
@@ -139,15 +139,15 @@ func TestNotReady(t *testing.T) {
 }
 
 func TestLogin(t *testing.T) {
-	withApi(func(e *echo.Echo, signapi *SignApi) {
-		req, _ := http.NewRequest(echo.POST, "/v1/auth/"+authenticator.Name(), nil)
+	withAPI(func(e *echo.Echo, _ *SignAPI) {
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/auth/"+authenticator.Name(), nil)
 		req.SetBasicAuth(authenticator.User, string(authenticator.Secret))
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusOK, rec.Code)
 		assert.Equal(t, "application/jwt", rec.Header().Get("Content-Type"))
 		signedToken := rec.Body.String()
-		token, err := jwt.ParseWithClaims(signedToken, &SignClaim{}, func(token *jwt.Token) (interface{}, error) {
+		token, err := jwt.ParseWithClaims(signedToken, &SignClaim{}, func(_ *jwt.Token) (any, error) {
 			return signingKey, nil
 		})
 		if assert.NoError(t, err) {
@@ -157,7 +157,7 @@ func TestLogin(t *testing.T) {
 		}
 
 		t.Run("TestMultiFactorAuth", func(t *testing.T) {
-			req, _ := http.NewRequest(echo.POST, "/v1/auth/"+authenticator.Name(), nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/auth/"+authenticator.Name(), nil)
 			req.SetBasicAuth(authenticator.User, string(authenticator.Secret))
 			req.Header.Set("X-Auth", "Bearer "+signedToken)
 			rec := httptest.NewRecorder()
@@ -165,7 +165,7 @@ func TestLogin(t *testing.T) {
 			assert.Equal(t, http.StatusOK, rec.Code)
 			assert.Equal(t, "application/jwt", rec.Header().Get("Content-Type"))
 			signedToken = rec.Body.String()
-			token, err := jwt.ParseWithClaims(signedToken, &SignClaim{}, func(token *jwt.Token) (interface{}, error) {
+			token, err := jwt.ParseWithClaims(signedToken, &SignClaim{}, func(_ *jwt.Token) (any, error) {
 				return signingKey, nil
 			})
 			if assert.NoError(t, err) {
@@ -178,7 +178,7 @@ func TestLogin(t *testing.T) {
 }
 
 func TestLoginLongAuthContext(t *testing.T) {
-	withApi(func(e *echo.Echo, signapi *SignApi) {
+	withAPI(func(e *echo.Echo, signapi *SignAPI) {
 		actx := &auth.AuthContext{Status: auth.StatusCompleted}
 		for i := 1; i <= MaxAuthContextChainLength; i++ {
 			actx = &auth.AuthContext{Parent: actx, Status: auth.StatusCompleted}
@@ -186,13 +186,13 @@ func TestLoginLongAuthContext(t *testing.T) {
 		token := signapi.makeToken(actx)
 		ss, _ := token.SignedString(signapi.tkey)
 
-		req, _ := http.NewRequest(echo.POST, "/v1/auth/"+authenticator.Name(), nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/auth/"+authenticator.Name(), nil)
 		req.SetBasicAuth(authenticator.User, string(authenticator.Secret))
 		req.Header.Set("X-Auth", "Bearer "+ss)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
-		_, err := jwt.ParseWithClaims(rec.Body.String(), &SignClaim{}, func(token *jwt.Token) (interface{}, error) {
+		_, err := jwt.ParseWithClaims(rec.Body.String(), &SignClaim{}, func(_ *jwt.Token) (any, error) {
 			return signingKey, nil
 		})
 		assert.Error(t, err, "we shouldn't have received a valid token")
@@ -200,7 +200,7 @@ func TestLoginLongAuthContext(t *testing.T) {
 }
 
 func TestAddCaKeyWithChallenge(t *testing.T) {
-	withApi(func(e *echo.Echo, signapi *SignApi) {
+	withAPI(func(e *echo.Echo, signapi *SignAPI) {
 		actx := fakeAuthContext
 		actx.Status = auth.StatusCompleted
 		token := signapi.makeToken(&actx)
@@ -208,7 +208,7 @@ func TestAddCaKeyWithChallenge(t *testing.T) {
 
 		t.Run("TestAddUnencrypted", func(t *testing.T) {
 			buf := bytes.NewBuffer(testCaPrivatePem)
-			req, _ := http.NewRequest(echo.POST, "/v1/ca?init_challenge=true", buf)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/ca?init_challenge=true", buf)
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -223,7 +223,7 @@ func TestAddCaKeyWithChallenge(t *testing.T) {
 				Passphrase: passphrase,
 				Format:     sshkeys.FormatClassicPEM,
 			})
-			encryptedKeyOpenSsh, _ := sshkeys.Marshal(parsedKey, &sshkeys.MarshalOptions{
+			encryptedKeyOpenSSH, _ := sshkeys.Marshal(parsedKey, &sshkeys.MarshalOptions{
 				Passphrase: passphrase,
 				Format:     sshkeys.FormatOpenSSHv1,
 			})
@@ -233,19 +233,19 @@ func TestAddCaKeyWithChallenge(t *testing.T) {
 			}
 			tests := []args{
 				{"Pem", encryptedKeyPem},
-				{"Openssh", encryptedKeyOpenSsh},
+				{"Openssh", encryptedKeyOpenSSH},
 			}
 			for _, testArgs := range tests {
 				t.Run("RespondWith"+testArgs.name, func(t *testing.T) {
 					rec := httptest.NewRecorder()
-					req, _ := http.NewRequest(echo.POST, "/v1/ca?init_challenge=true", bytes.NewBuffer(testArgs.key))
+					req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/ca?init_challenge=true", bytes.NewBuffer(testArgs.key))
 					req.Header.Set("X-Auth", "Bearer "+ss)
 					e.ServeHTTP(rec, req)
 					if !assert.Equal(t, http.StatusAccepted, rec.Code) {
 						return
 					}
 					_ = signapi.signer.RemoveAllKeys()
-					req, _ = http.NewRequest(echo.POST, "/v1/ca/response", rec.Body)
+					req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/ca/response", rec.Body)
 					req.Header.Set("X-Auth", "Bearer "+ss)
 					req.SetBasicAuth("", string(passphrase))
 					rec = httptest.NewRecorder()
@@ -257,14 +257,14 @@ func TestAddCaKeyWithChallenge(t *testing.T) {
 			t.Run("RespondWitExpired", func(t *testing.T) {
 				_ = signapi.signer.RemoveAllKeys()
 				rec := httptest.NewRecorder()
-				req, _ := http.NewRequest(echo.POST, "/v1/ca?init_challenge=true", bytes.NewBuffer(encryptedKeyOpenSsh))
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/ca?init_challenge=true", bytes.NewBuffer(encryptedKeyOpenSSH))
 				req.Header.Set("X-Auth", "Bearer "+ss)
 				e.ServeHTTP(rec, req)
 				if !assert.Equal(t, http.StatusAccepted, rec.Code) {
 					return
 				}
 				time.Sleep(caChallengeLifetime)
-				req, _ = http.NewRequest(echo.POST, "/v1/ca/response", rec.Body)
+				req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/ca/response", rec.Body)
 				req.Header.Set("X-Auth", "Bearer "+ss)
 				req.SetBasicAuth("", string(passphrase))
 				rec = httptest.NewRecorder()
@@ -276,12 +276,12 @@ func TestAddCaKeyWithChallenge(t *testing.T) {
 }
 
 func TestAddCaKeyRequiresCompletedAuth(t *testing.T) {
-	withApi(func(e *echo.Echo, signapi *SignApi) {
+	withAPI(func(e *echo.Echo, signapi *SignAPI) {
 		pending := &auth.AuthContext{Status: auth.StatusPending}
 		ss, _ := signapi.makeToken(pending).SignedString(signapi.tkey)
 
 		for _, path := range []string{"/v1/ca", "/v1/ca?init_challenge=true", "/v1/ca/response"} {
-			req, _ := http.NewRequest(echo.POST, path, bytes.NewBuffer(testCaPrivatePem))
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, bytes.NewBuffer(testCaPrivatePem))
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			req.SetBasicAuth("", "passphrase")
 			rec := httptest.NewRecorder()
@@ -293,21 +293,21 @@ func TestAddCaKeyRequiresCompletedAuth(t *testing.T) {
 }
 
 func TestSigning(t *testing.T) {
-	withApi(func(e *echo.Echo, signapi *SignApi) {
+	withAPI(func(e *echo.Echo, signapi *SignAPI) {
 		actx := fakeAuthContext
 		actx.Status = auth.StatusCompleted
 		token := signapi.makeToken(&actx)
 		ss, _ := token.SignedString(signapi.tkey)
 
 		buf := bytes.NewBuffer(testUserPublic)
-		req, _ := http.NewRequest(echo.POST, "/v1/sign", buf)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/sign", buf)
 		req.Header.Set("X-Auth", "Bearer "+ss)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
 		assert.Equal(t, http.StatusInternalServerError, rec.Code)
 
 		buf = bytes.NewBuffer(testCaPrivatePem)
-		req, _ = http.NewRequest(echo.POST, "/v1/ca", buf)
+		req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/ca", buf)
 		req.Header.Set("X-Auth", "Bearer "+ss)
 		rec = httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
@@ -315,14 +315,14 @@ func TestSigning(t *testing.T) {
 		assert.Empty(t, rec.Body.String())
 
 		t.Run("TestReady", func(t *testing.T) {
-			req, _ := http.NewRequest(echo.GET, "/v1/ready", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/ready", nil)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
 			assert.Equal(t, http.StatusNoContent, rec.Code)
 		})
 
 		t.Run("TestGetKey", func(t *testing.T) {
-			req, _ := http.NewRequest(echo.GET, "/v1/ca", nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/ca", nil)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
 			assert.Equal(t, http.StatusOK, rec.Code)
@@ -335,7 +335,7 @@ func TestSigning(t *testing.T) {
 			q := u.Query()
 			q.Set("signing_option", "rsa-sha2-256")
 			u.RawQuery = q.Encode()
-			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), buf)
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -355,7 +355,7 @@ func TestSigning(t *testing.T) {
 			q := u.Query()
 			q.Set("signing_option", "rsa-sha2-512")
 			u.RawQuery = q.Encode()
-			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), buf)
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -375,7 +375,7 @@ func TestSigning(t *testing.T) {
 			q := u.Query()
 			q.Set("signing_option", "fake")
 			u.RawQuery = q.Encode()
-			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), buf)
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -389,7 +389,7 @@ func TestSigning(t *testing.T) {
 			q := u.Query()
 			q.Set("expires", exp.Format(time.RFC3339))
 			u.RawQuery = q.Encode()
-			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), buf)
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -399,7 +399,7 @@ func TestSigning(t *testing.T) {
 			if assert.NoError(t, err) {
 				cert, _ := raw.(*ssh.Certificate)
 				assert.NotNil(t, cert)
-				assert.Equal(t, exp.Unix(), int64(cert.ValidBefore))
+				assert.Equal(t, util.CertTimestamp(exp), cert.ValidBefore)
 			}
 		})
 
@@ -414,7 +414,7 @@ func TestSigning(t *testing.T) {
 			pendingSignedString, _ := pendingToken.SignedString(signapi.tkey)
 
 			u, _ := url.Parse("/v1/sign")
-			req, _ := http.NewRequest(echo.POST, u.String(), nil)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), nil)
 			req.Header.Set("X-Auth", "Bearer "+pendingSignedString)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -430,7 +430,7 @@ func TestSigning(t *testing.T) {
 			q := u.Query()
 			q.Set("expires", exp.Format(time.RFC3339))
 			u.RawQuery = q.Encode()
-			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), buf)
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -443,7 +443,7 @@ func TestSigning(t *testing.T) {
 			q := u.Query()
 			q.Set("include_principals", "fake2")
 			u.RawQuery = q.Encode()
-			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), buf)
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -464,7 +464,7 @@ func TestSigning(t *testing.T) {
 			q := u.Query()
 			q.Set("exclude_principals", "fake2")
 			u.RawQuery = q.Encode()
-			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), buf)
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -485,7 +485,7 @@ func TestSigning(t *testing.T) {
 			q := u.Query()
 			q.Set("max_principals_per_certificate", "42")
 			u.RawQuery = q.Encode()
-			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), buf)
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -517,7 +517,7 @@ func TestSigning(t *testing.T) {
 			q := u.Query()
 			q.Set("include_principals", "no-such-principal")
 			u.RawQuery = q.Encode()
-			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), buf)
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -528,14 +528,14 @@ func TestSigning(t *testing.T) {
 
 		t.Run("TestSignRejectsCertificateAsKey", func(t *testing.T) {
 			buf := bytes.NewBuffer(testUserPublic)
-			req, _ := http.NewRequest(echo.POST, "/v1/sign", buf)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/sign", buf)
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec := httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
 			if !assert.Equal(t, http.StatusOK, rec.Code) {
 				return
 			}
-			req, _ = http.NewRequest(echo.POST, "/v1/sign", bytes.NewBuffer(rec.Body.Bytes()))
+			req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/sign", bytes.NewBuffer(rec.Body.Bytes()))
 			req.Header.Set("X-Auth", "Bearer "+ss)
 			rec = httptest.NewRecorder()
 			e.ServeHTTP(rec, req)
@@ -567,7 +567,7 @@ func TestSigning(t *testing.T) {
 					q := u.Query()
 					q.Set("max_principals_per_certificate", tt.val)
 					u.RawQuery = q.Encode()
-					req, _ := http.NewRequest(echo.POST, u.String(), buf)
+					req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, u.String(), buf)
 					req.Header.Set("X-Auth", "Bearer "+ss)
 					rec := httptest.NewRecorder()
 					e.ServeHTTP(rec, req)
@@ -583,7 +583,7 @@ func TestSigning(t *testing.T) {
 // races between concurrent requests.
 func TestJWTClaimsAreNotSharedBetweenRequests(t *testing.T) {
 	key := []byte("testkey")
-	sa := &SignApi{tkey: key}
+	sa := &SignAPI{tkey: key}
 	e := echo.New()
 	e.POST("/claims", func(c echo.Context) error {
 		token, _ := c.Get("user").(*jwt.Token)
@@ -596,7 +596,7 @@ func TestJWTClaimsAreNotSharedBetweenRequests(t *testing.T) {
 		if !assert.NoError(t, err) {
 			return nil
 		}
-		req := httptest.NewRequest(http.MethodPost, "/claims", nil)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/claims", nil)
 		req.Header.Set("X-Auth", "Bearer "+ss)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)

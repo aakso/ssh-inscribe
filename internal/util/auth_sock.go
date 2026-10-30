@@ -1,9 +1,9 @@
 //go:build !windows
-// +build !windows
 
 package util
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -15,7 +15,7 @@ func DialAuthSock(name string) (net.Conn, error) {
 	if name == "" {
 		name = os.Getenv("SSH_AUTH_SOCK")
 	}
-	conn, err := net.Dial("unix", name)
+	conn, err := DialUnix(name)
 	if err != nil {
 		return nil, fmt.Errorf("could not connect to ssh-agent: %w", err)
 	}
@@ -30,7 +30,7 @@ func LocalListen(name string) (net.Listener, error) {
 	}
 	prevUmask := syscall.Umask(0177)
 	defer syscall.Umask(prevUmask)
-	ln, err := net.Listen("unix", name)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", name)
 	if err != nil {
 		return nil, fmt.Errorf("could not create a unix listener socket: %w", err)
 	}

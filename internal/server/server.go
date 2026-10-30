@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -28,7 +29,7 @@ type Server struct {
 	web    *echo.Echo
 
 	// APIs
-	signapi *signapi.SignApi
+	signapi *signapi.SignAPI
 }
 
 func (s *Server) Start() error {
@@ -65,15 +66,15 @@ func (s *Server) Start() error {
 		if !s.web.DisableHTTP2 {
 			tlsServer.TLSConfig.NextProtos = append(tlsServer.TLSConfig.NextProtos, "h2")
 		}
-		log.WithField("listen", fmt.Sprintf("https://%s", s.config.Listen)).WithField(
-			"certificates", fmt.Sprintf("%d", len(cc.Certificates))).Info("server starting")
+		log.WithField("listen", "https://"+s.config.Listen).WithField(
+			"certificates", strconv.Itoa(len(cc.Certificates))).Info("server starting")
 
 		err = s.web.StartServer(tlsServer)
 		if err != nil {
 			return fmt.Errorf("cannot start server: %w", err)
 		}
 	} else {
-		log.WithField("listen", fmt.Sprintf("http://%s", s.config.Listen)).Warn("server starting without TLS")
+		log.WithField("listen", "http://"+s.config.Listen).Warn("server starting without TLS")
 		err = s.web.Start(s.config.Listen)
 	}
 	if err != nil {
@@ -82,7 +83,7 @@ func (s *Server) Start() error {
 	return nil
 }
 
-func (s *Server) initApi() {
+func (s *Server) initAPI() {
 	s.web.Use(RecoverHandler(Log.Data))
 	s.web.HTTPErrorHandler = errorHandler
 	s.web.Use(RequestLogger(Log.Data))
@@ -129,7 +130,7 @@ func Build() (*Server, error) {
 	}
 
 	signer := keysigner.New(conf.AgentSocket, conf.CertSigningKeyFingerprint)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		if signer.AgentPing() {
 			break
 		}
@@ -163,7 +164,7 @@ func Build() (*Server, error) {
 		web:     echo.New(),
 		signapi: signapi,
 	}
-	s.initApi()
+	s.initAPI()
 	return s, nil
 }
 
@@ -175,9 +176,10 @@ func handleVersion(c echo.Context) error {
 func errorHandler(err error, c echo.Context) {
 	var (
 		code = http.StatusInternalServerError
-		msg  interface{}
+		msg  any
 	)
-	if he, ok := err.(*echo.HTTPError); ok {
+	he := &echo.HTTPError{}
+	if errors.As(err, &he) {
 		code = he.Code
 		msg = he.Message
 	} else {

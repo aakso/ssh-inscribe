@@ -28,7 +28,7 @@ var (
 )
 
 func serverJWKS() *httptest.Server {
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(keys)
@@ -38,8 +38,8 @@ func serverJWKS() *httptest.Server {
 func serverOIDCDiscover(jwksURI string) *httptest.Server {
 	srv := httptest.NewUnstartedServer(nil)
 
-	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := map[string]interface{}{
+	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		resp := map[string]any{
 			"issuer":   srv.URL,
 			"jwks_uri": jwksURI,
 		}
@@ -52,7 +52,7 @@ func serverOIDCDiscover(jwksURI string) *httptest.Server {
 
 func getAuthenticator() *AuthOIDC {
 	conf := *Defaults
-	conf.ClientId = "clientid"
+	conf.ClientID = "clientid"
 	conf.ClientSecret = "clientsecret"
 	conf.RedirectURL = "https://localhost:12900/some/path"
 	conf.ProviderURL = srvOIDC.URL
@@ -142,6 +142,7 @@ type testIDClaims struct {
 // the pending request identified by *state and issues an ID token built by
 // mkClaims, which receives the nonce of that pending request.
 func tokenServer(t *testing.T, ab *AuthOIDC, state *string, mkClaims func(nonce string) *testIDClaims) *httptest.Server {
+	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		entry, ok := ab.getState(*state)
 		if !assert.True(t, ok, "token request for unknown state") {
@@ -155,13 +156,13 @@ func tokenServer(t *testing.T, ab *AuthOIDC, state *string, mkClaims func(nonce 
 		claims := mkClaims(entry.nonce)
 		claims.RegisteredClaims = jwt.RegisteredClaims{
 			Issuer:    srvOIDC.URL,
-			Audience:  jwt.ClaimStrings([]string{ab.config.ClientId}),
+			Audience:  jwt.ClaimStrings([]string{ab.config.ClientID}),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour)),
 		}
 		ss, _ := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(privateKey)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id_token":     ss,
 			"token_type":   "Bearer",
 			"access_token": "token",
@@ -169,8 +170,6 @@ func tokenServer(t *testing.T, ab *AuthOIDC, state *string, mkClaims func(nonce 
 		})
 	}))
 }
-
-func boolPtr(b bool) *bool { return &b }
 
 func TestAuthURLHasPKCEAndNonce(t *testing.T) {
 	ab := getAuthenticator()
@@ -200,7 +199,7 @@ func TestFederationCallback(t *testing.T) {
 	ab := getAuthenticator()
 	var state string
 	tsrv := tokenServer(t, ab, &state, func(nonce string) *testIDClaims {
-		return &testIDClaims{Email: email, EmailVerified: boolPtr(true), Name: userName, Groups: groups, Nonce: nonce}
+		return &testIDClaims{Email: email, EmailVerified: new(true), Name: userName, Groups: groups, Nonce: nonce}
 	})
 	defer tsrv.Close()
 	assert := assert.New(t)
@@ -261,6 +260,7 @@ func TestFederationCallback(t *testing.T) {
 // runFlow starts a flow, runs the callback against a token server issuing
 // the given claims and tries to complete the flow.
 func runFlow(t *testing.T, ab *AuthOIDC, mkClaims func(nonce string) *testIDClaims) (actx *auth.AuthContext, ok bool, callbackErr error) {
+	t.Helper()
 	var state string
 	tsrv := tokenServer(t, ab, &state, mkClaims)
 	defer tsrv.Close()
@@ -292,10 +292,10 @@ func TestEmailPrincipalRequiresVerifiedEmail(t *testing.T) {
 		require  bool
 		ok       bool
 	}{
-		{"verified", boolPtr(true), true, true},
-		{"unverified", boolPtr(false), true, false},
+		{"verified", new(true), true, true},
+		{"unverified", new(false), true, false},
 		{"missing", nil, true, false},
-		{"unverifiedNotRequired", boolPtr(false), false, true},
+		{"unverifiedNotRequired", new(false), false, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -327,21 +327,19 @@ func TestPendingStateLimitEvictsExpired(t *testing.T) {
 	assert.NoError(t, ab.saveState("c", entryState{}), "expired entries must not count towards the limit")
 }
 
-func TestStateConcurrencySafe(t *testing.T) {
+func TestStateConcurrencySafe(_ *testing.T) {
 	ab := getAuthenticator()
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 20; j++ {
+	for range 20 {
+		wg.Go(func() {
+			for range 20 {
 				st := newRandomState()
 				_ = ab.saveState(st, entryState{})
 				_, _ = ab.getState(st)
-				_ = ab.setClaims(st, map[string]interface{}{})
+				_ = ab.setClaims(st, map[string]any{})
 				ab.deleteState(st)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

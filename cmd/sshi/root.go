@@ -126,7 +126,7 @@ func init() {
 		logLevel,
 		"Set logging level ($SSH_INSCRIBE_LOGLEVEL)",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("loglevel", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = RootCmd.RegisterFlagCompletionFunc("loglevel", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		return logging.GetAvailableLevelNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 
@@ -172,7 +172,7 @@ func init() {
 		defLoginAuthEndpoints,
 		"Login to specific auth endpoints ($SSH_INSCRIBE_LOGIN_AUTH_ENDPOINTS)",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("login", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = RootCmd.RegisterFlagCompletionFunc("login", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		c := &ui.Client{
 			Config: ClientConfig,
 		}
@@ -248,7 +248,7 @@ func init() {
 		ClientConfig.GenerateKeypairSize,
 		"Set ad-hoc keypair size. Only valid for RSA keytype ($SSH_INSCRIBE_GENKEY_SIZE)",
 	)
-	_ = RootCmd.RegisterFlagCompletionFunc("keysize", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	_ = RootCmd.RegisterFlagCompletionFunc("keysize", func(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
 		var sizes []string
 		if ClientConfig.GenerateKeypairType == "rsa" {
 			// Opinionated set, non-exhaustive

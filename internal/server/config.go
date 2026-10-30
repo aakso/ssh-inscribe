@@ -38,7 +38,7 @@ type Config struct {
 	TokenSigningKey           string        `yaml:"tokenSigningKey"`
 }
 
-var Defaults *Config = &Config{
+var Defaults = &Config{
 	Listen:       ":8540",
 	TLSCertFile:  "",
 	TLSKeyFile:   "",
@@ -71,7 +71,7 @@ func (c Config) GetCertificateMap() (cc CertificateConfig, err error) {
 	// Single certificate has no name configuration
 	if c.TLSCertFile != "" && c.TLSKeyFile != "" {
 		if len(c.TLSCertFiles) > 0 {
-			return cc, errors.New("Unsupported configuration, either set TLSCertFile or TLSCertFiles, not both")
+			return cc, errors.New("unsupported configuration, either set TLSCertFile or TLSCertFiles, not both")
 		}
 
 		var certificate, err = tls.LoadX509KeyPair(c.TLSCertFile, c.TLSKeyFile)

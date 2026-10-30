@@ -34,7 +34,7 @@ var cryptCmd = &cobra.Command{
 }
 
 func readPassword(prompt io.Writer, msg string) ([]byte, error) {
-	fd := int(os.Stdin.Fd()) //nolint:gosec // file descriptors fit in int
+	fd := int(os.Stdin.Fd())
 	if term.IsTerminal(fd) {
 		_, _ = fmt.Fprint(prompt, msg)
 		defer func() { _, _ = fmt.Fprintln(prompt) }()

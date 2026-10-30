@@ -14,7 +14,7 @@ import (
 )
 
 var cfgFile string
-var defaultCfgLoc string = path.Join(os.Getenv("HOME"), ".ssh_inscribe/config.yaml")
+var defaultCfgLoc = path.Join(os.Getenv("HOME"), ".ssh_inscribe/config.yaml")
 
 var RootCmd = &cobra.Command{
 	Use:   "ssh-inscribe",

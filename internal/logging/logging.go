@@ -57,7 +57,6 @@ func Setup() error {
 	conf, _ := tmp.(*Config)
 	if conf == nil {
 		return errors.New("cannot initialize logging")
-
 	}
 
 	if !conf.EnableConsole {

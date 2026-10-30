@@ -13,12 +13,12 @@ var serverCmd = &cobra.Command{
 	Long:              `Start the service`,
 	Args:              cobra.NoArgs,
 	ValidArgsFunction: cobra.NoFileCompletions,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if srv, err := server.Build(); err != nil {
+	RunE: func(_ *cobra.Command, _ []string) error {
+		srv, err := server.Build()
+		if err != nil {
 			return err
-		} else {
-			return srv.Start()
 		}
+		return srv.Start()
 	},
 }
 

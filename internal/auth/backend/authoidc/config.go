@@ -12,7 +12,7 @@ type Config struct {
 	Realm string
 
 	Timeout                int      `yaml:"timeout"`
-	ClientId               string   `yaml:"clientID"`
+	ClientID               string   `yaml:"clientID"`
 	ClientSecret           string   `yaml:"clientSecret"`
 	Scopes                 []string `yaml:"scopes"`
 	AuthFlowTimeout        int      `yaml:"authFlowTimeout"`
@@ -31,7 +31,7 @@ type Config struct {
 	Extensions      map[string]string
 }
 
-var Defaults *Config = &Config{
+var Defaults = &Config{
 	Name:                   DefaultName,
 	Realm:                  DefaultRealm,
 	Scopes:                 []string{"openid", "email", "profile"},

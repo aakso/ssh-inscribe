@@ -23,7 +23,7 @@ type Config struct {
 	Extensions        map[string]string
 }
 
-var Defaults *Config = &Config{
+var Defaults = &Config{
 	Name:                     DefaultName,
 	Realm:                    DefaultRealm,
 	ServerURL:                "ldaps://127.0.0.1:636",

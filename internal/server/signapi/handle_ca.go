@@ -17,7 +17,7 @@ import (
 	"github.com/aakso/ssh-inscribe/internal/auth"
 )
 
-func (sa *SignApi) HandleAddKey(c echo.Context) error {
+func (sa *SignAPI) HandleAddKey(c echo.Context) error {
 	var actx *auth.AuthContext
 	if token, _ := c.Get("user").(*jwt.Token); token != nil {
 		if claims, _ := token.Claims.(*SignClaim); claims != nil {
@@ -30,8 +30,8 @@ func (sa *SignApi) HandleAddKey(c echo.Context) error {
 	if !actx.IsValid() {
 		return echo.NewHTTPError(http.StatusBadRequest, "auth context is not valid")
 	}
-	auditId, _ := actx.GetAuthMeta()[auth.MetaAuditID].(string)
-	log := Log.WithField("audit_id", auditId)
+	auditID, _ := actx.GetAuthMeta()[auth.MetaAuditID].(string)
+	log := Log.WithField("audit_id", auditID)
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
@@ -42,10 +42,11 @@ func (sa *SignApi) HandleAddKey(c echo.Context) error {
 	// Encrypted CA challenge
 	if v, _ := strconv.ParseBool(c.QueryParam("init_challenge")); v {
 		_, err := ssh.ParseRawPrivateKey(body)
-		if _, ok := err.(*ssh.PassphraseMissingError); !ok {
-			return echo.NewHTTPError(http.StatusBadRequest, fmt.Errorf("encrypted private key expected"))
+		passphraseMissingError := &ssh.PassphraseMissingError{}
+		if !errors.As(err, &passphraseMissingError) {
+			return echo.NewHTTPError(http.StatusBadRequest, errors.New("encrypted private key expected"))
 		}
-		serialised, err := sa.encryptChallenge(body, auditId)
+		serialised, err := sa.encryptChallenge(body, auditID)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 		}
@@ -59,7 +60,7 @@ func (sa *SignApi) HandleAddKey(c echo.Context) error {
 	return c.NoContent(http.StatusAccepted)
 }
 
-func (sa *SignApi) HandleCaChallenge(c echo.Context) error {
+func (sa *SignAPI) HandleCaChallenge(c echo.Context) error {
 	var actx *auth.AuthContext
 	if token, _ := c.Get("user").(*jwt.Token); token != nil {
 		if claims, _ := token.Claims.(*SignClaim); claims != nil {
@@ -72,8 +73,8 @@ func (sa *SignApi) HandleCaChallenge(c echo.Context) error {
 	if !actx.IsValid() {
 		return echo.NewHTTPError(http.StatusBadRequest, "auth context is not valid")
 	}
-	auditId, _ := actx.GetAuthMeta()[auth.MetaAuditID].(string)
-	log := Log.WithField("audit_id", auditId)
+	auditID, _ := actx.GetAuthMeta()[auth.MetaAuditID].(string)
+	log := Log.WithField("audit_id", auditID)
 	passphrase, _ := c.Get("password").(string)
 	if passphrase == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "no passphrase given")
@@ -87,7 +88,7 @@ func (sa *SignApi) HandleCaChallenge(c echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
 	}
-	log = log.WithField("original_audit_id", challenge.AuditId)
+	log = log.WithField("original_audit_id", challenge.AuditID)
 	if time.Now().After(challenge.Expire) {
 		log.Error("attempted use of expired challenge")
 		return echo.NewHTTPError(http.StatusForbidden, "the challenge is already expired")
@@ -99,12 +100,12 @@ func (sa *SignApi) HandleCaChallenge(c echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
-func (sa *SignApi) HandleGetKey(c echo.Context) error {
-	if key, err := sa.signer.GetPublicKey(); err != nil {
+func (sa *SignAPI) HandleGetKey(c echo.Context) error {
+	key, err := sa.signer.GetPublicKey()
+	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, err.Error())
-	} else {
-		return c.Blob(http.StatusOK, "text/plain", ssh.MarshalAuthorizedKey(key))
 	}
+	return c.Blob(http.StatusOK, "text/plain", ssh.MarshalAuthorizedKey(key))
 }
 
 const (
@@ -112,10 +113,10 @@ const (
 	challengeContentEncryption = jose.A256GCM
 )
 
-func (sa *SignApi) encryptChallenge(key []byte, auditId string) ([]byte, error) {
+func (sa *SignAPI) encryptChallenge(key []byte, auditID string) ([]byte, error) {
 	obj := encryptedChallenge{
 		EncryptedKey: key,
-		AuditId:      auditId,
+		AuditID:      auditID,
 		Expire:       time.Now().Add(sa.caChallengeLife),
 	}
 	plaintext, err := json.Marshal(&obj)
@@ -138,7 +139,7 @@ func (sa *SignApi) encryptChallenge(key []byte, auditId string) ([]byte, error) 
 	return []byte(serialised), nil
 }
 
-func (sa *SignApi) decryptChallenge(challenge []byte) (*encryptedChallenge, error) {
+func (sa *SignAPI) decryptChallenge(challenge []byte) (*encryptedChallenge, error) {
 	var obj encryptedChallenge
 	parsedCiphertext, err := jose.ParseEncryptedCompact(string(challenge),
 		[]jose.KeyAlgorithm{challengeKeyAlgorithm},
@@ -159,6 +160,6 @@ func (sa *SignApi) decryptChallenge(challenge []byte) (*encryptedChallenge, erro
 
 type encryptedChallenge struct {
 	EncryptedKey []byte
-	AuditId      string
+	AuditID      string
 	Expire       time.Time
 }

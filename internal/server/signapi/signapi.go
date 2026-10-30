@@ -22,7 +22,7 @@ type AuthenticatorListEntry struct {
 	Default       bool
 }
 
-type SignApi struct {
+type SignAPI struct {
 	auth            map[string]auth.Authenticator
 	authList        []AuthenticatorListEntry
 	signer          *keysigner.KeySignerService
@@ -40,8 +40,7 @@ func New(
 	defaultlife time.Duration,
 	maxlife time.Duration,
 	caChallengeLife time.Duration,
-) *SignApi {
-
+) *SignAPI {
 	authMap := map[string]auth.Authenticator{}
 	for _, v := range authList {
 		authMap[v.Authenticator.Name()] = v.Authenticator
@@ -52,7 +51,7 @@ func New(
 		panic(err.Error())
 	}
 
-	return &SignApi{
+	return &SignAPI{
 		auth:            authMap,
 		authList:        authList,
 		signer:          signer,
@@ -69,7 +68,7 @@ type SignClaim struct {
 	jwt.RegisteredClaims
 }
 
-func (sa *SignApi) makeToken(actx *auth.AuthContext) *jwt.Token {
+func (sa *SignAPI) makeToken(actx *auth.AuthContext) *jwt.Token {
 	claims := SignClaim{
 		AuthContext: actx,
 		RegisteredClaims: jwt.RegisteredClaims{

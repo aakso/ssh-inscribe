@@ -3,6 +3,7 @@ package authfile
 import (
 	"crypto/subtle"
 	"fmt"
+	"maps"
 	"os"
 
 	"github.com/sirupsen/logrus"
@@ -138,11 +139,7 @@ func (e UserEntry) criticalOptions() map[string]string {
 		return e.CriticalOptions
 	}
 	r := make(map[string]string, len(e.CriticalOptions)+len(e.CriticalOptionsLower))
-	for k, v := range e.CriticalOptionsLower {
-		r[k] = v
-	}
-	for k, v := range e.CriticalOptions {
-		r[k] = v
-	}
+	maps.Copy(r, e.CriticalOptionsLower)
+	maps.Copy(r, e.CriticalOptions)
 	return r
 }

@@ -29,7 +29,7 @@ func DialAuthSock(name string) (net.Conn, error) {
 			return nil, fmt.Errorf("could not connect to ssh-agent: %w", err)
 		}
 	} else { // Cygwin
-		conn, err = net.Dial("unix", name)
+		conn, err = DialUnix(name)
 		if err != nil {
 			return nil, fmt.Errorf("could not connect to ssh-agent: %w", err)
 		}
@@ -54,6 +54,6 @@ func LocalListen(name string) (net.Listener, error) {
 
 // CheckSocketPath is a no-op on Windows, named pipes are created with an
 // explicit security descriptor.
-func CheckSocketPath(name string) error {
+func CheckSocketPath(_ string) error {
 	return nil
 }

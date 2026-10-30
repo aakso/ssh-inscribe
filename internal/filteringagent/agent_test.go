@@ -14,6 +14,7 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 
 	"github.com/aakso/ssh-inscribe/internal/keysigner"
+	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
 type certsAndKeys struct {
@@ -30,6 +31,7 @@ type certsAndKeys struct {
 }
 
 func (c *certsAndKeys) addCertsToAgent(t *testing.T, a agent.Agent, skipCa2 bool) {
+	t.Helper()
 	var err error
 	checkErr := func(err error) {
 		if err != nil {
@@ -57,6 +59,7 @@ func (c *certsAndKeys) addCertsToAgent(t *testing.T, a agent.Agent, skipCa2 bool
 }
 
 func testDeps(t *testing.T) *certsAndKeys {
+	t.Helper()
 	var (
 		r   certsAndKeys
 		err error
@@ -73,8 +76,8 @@ func testDeps(t *testing.T) *certsAndKeys {
 			Key:         certKeySigner.PublicKey(),
 			CertType:    ssh.UserCert,
 			KeyId:       "test",
-			ValidAfter:  uint64(time.Now().Unix()),
-			ValidBefore: uint64(time.Now().Add(60 * time.Minute).Unix()),
+			ValidAfter:  util.CertTimestamp(time.Now()),
+			ValidBefore: util.CertTimestamp(time.Now().Add(60 * time.Minute)),
 		}
 		signer, err := ssh.NewSignerFromKey(ca)
 		checkErr(err)
@@ -158,7 +161,6 @@ func Test_filteringAgent_Add(t *testing.T) {
 		}
 	}
 	assert.True(t, addedCertFound)
-
 }
 
 func Test_filteringAgent_List(t *testing.T) {
@@ -235,7 +237,6 @@ func Test_filteringAgent_List(t *testing.T) {
 			assert.Equal(t, ssh.KeyAlgoRSA, key.(*ssh.Certificate).Key.Type())
 		}
 	})
-
 }
 
 func Test_filteringAgent_Remove(t *testing.T) {

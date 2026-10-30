@@ -2,6 +2,7 @@ package keysigner
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
@@ -36,14 +37,14 @@ type successAgentMsg struct{}
 
 // From PROTOCOL.agent 2.2.4
 type addSmartcardKeysToAgentReq struct {
-	Id          string `sshtype:"20|26"`
+	ID          string `sshtype:"20|26"`
 	Pin         string
 	Constraints []byte `ssh:"rest"`
 }
 
 // 2.4.3
 type removeSmartcardKeysFromAgentReq struct {
-	Id  string `sshtype:"21"`
+	ID  string `sshtype:"21"`
 	Pin string
 }
 
@@ -194,7 +195,7 @@ func (ks *KeySignerService) addSmartcard(id, pin string) error {
 	}
 
 	req := ssh.Marshal(addSmartcardKeysToAgentReq{
-		Id:  id,
+		ID:  id,
 		Pin: pin,
 	})
 	res, err := ks.callAgent(req)
@@ -237,7 +238,7 @@ func (ks *KeySignerService) RemoveSmartcard(id string) error {
 func (ks *KeySignerService) removeSmartcard(id string) error {
 	ks.knownSmartCardKeys = make(map[string]*agent.Key)
 	req := ssh.Marshal(removeSmartcardKeysFromAgentReq{
-		Id: id,
+		ID: id,
 	})
 	res, err := ks.callAgent(req)
 	if err != nil {
@@ -261,7 +262,7 @@ func (ks *KeySignerService) AddSigningKey(encodedKey []byte, passphrase []byte, 
 		return errors.New("cannot add signing key: agent is not responding")
 	}
 	var (
-		key interface{}
+		key any
 		err error
 	)
 	if len(passphrase) > 0 {
@@ -371,10 +372,13 @@ func (ks *KeySignerService) KillAgent() bool {
 }
 
 // This is adapted from ssh/agent/client.go *client.Call
-func (ks *KeySignerService) callAgent(req []byte) (reply interface{}, err error) {
-	msg := make([]byte, 4+len(req))
-	binary.BigEndian.PutUint32(msg, uint32(len(req)))
-	copy(msg[4:], req)
+func (ks *KeySignerService) callAgent(req []byte) (reply any, err error) {
+	n := len(req)
+	if n < 0 || n > maxAgentResponseBytes {
+		return nil, errors.New("agent error: request too large")
+	}
+	msg := binary.BigEndian.AppendUint32(make([]byte, 0, 4+n), uint32(n))
+	msg = append(msg, req...)
 	if _, err = ks.conn.Write(msg); err != nil {
 		return nil, fmt.Errorf("agent error: %w", err)
 	}
@@ -412,7 +416,7 @@ func (ks *KeySignerService) startAgent() {
 		return
 	}
 
-	cmd := exec.Command(bin, "-a", ks.authSocketLoc)
+	cmd := exec.CommandContext(context.Background(), bin, "-a", ks.authSocketLoc) //nolint:gosec // ssh-agent from PATH with the configured socket path
 	out, err := cmd.Output()
 	if err != nil {
 		ks.log.WithError(err).Error("cannot start ssh-agent")
@@ -437,7 +441,7 @@ func (ks *KeySignerService) reconnect() bool {
 		}
 		return false
 	}
-	conn, err := net.Dial("unix", ks.authSocketLoc)
+	conn, err := util.DialUnix(ks.authSocketLoc)
 	if err != nil {
 		ks.log.WithError(err).Error("cannot connect to ssh-agent")
 		return false
@@ -548,7 +552,7 @@ func (ks *KeySignerService) Close() {
 }
 
 // success/fail handler
-func unmarshal(packet []byte) (interface{}, error) {
+func unmarshal(packet []byte) (any, error) {
 	if len(packet) < 1 {
 		return nil, errors.New("agent: empty packet")
 	}

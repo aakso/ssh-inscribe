@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -40,7 +41,7 @@ const (
 	CredentialTypePassword = "password"
 	CredentialTypePin      = "pin"
 
-	CurrentApiVersion = "v1"
+	CurrentAPIVersion = "v1"
 
 	// AgentComment is a comment to use for keys on agent.
 	AgentComment = "ssh-inscribe managed"
@@ -54,7 +55,7 @@ const spinner = `\|/-`
 
 type ignoreRedirects struct{}
 
-func (ir *ignoreRedirects) Apply(req *http.Request, via []*http.Request) error {
+func (ir *ignoreRedirects) Apply(_ *http.Request, _ []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
@@ -66,7 +67,7 @@ type Client struct {
 	credentialInput func(name, realm, credentialType, def string) ([]byte, error)
 
 	ca             ssh.PublicKey
-	userPrivateKey interface{}
+	userPrivateKey any
 	userCerts      []*ssh.Certificate
 	signerToken    []byte
 	serverVersion  semver.Version
@@ -362,7 +363,7 @@ func (c *Client) sendChallengeResponse() error {
 // generate generates an ad-hoc keypair.
 func (c *Client) generate() error {
 	var (
-		key interface{}
+		key any
 		err error
 	)
 	log := Log.WithField("action", "generate").
@@ -422,7 +423,7 @@ func (c *Client) storeInAgent() error {
 		// add time constraint to it
 		keyInAgent := i > 0
 		if i == 0 {
-			err = iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
+			err = iterAgentKeys(c.agentClient, func(key ssh.PublicKey, _ string) error {
 				if bytes.Equal(key.Marshal(), cert.Key.Marshal()) {
 					log.Debug("private key already in agent")
 					keyInAgent = true
@@ -434,10 +435,7 @@ func (c *Client) storeInAgent() error {
 			}
 		}
 
-		var lifetime uint32
-		if cert.ValidBefore != 0 {
-			lifetime = uint32(time.Until(time.Unix(int64(cert.ValidBefore), 0)).Seconds())
-		}
+		lifetime := util.AgentLifetime(cert, time.Now())
 		addedKey := agent.AddedKey{
 			PrivateKey:       c.userPrivateKey,
 			Certificate:      cert,
@@ -533,7 +531,7 @@ func (c *Client) storeInFile() error {
 			pubFile = abs
 		}
 		log.WithField("file", pubFile).Debug("saving to file")
-		fhPub, err := os.Create(pubFile)
+		fhPub, err := os.Create(pubFile) //nolint:gosec // path derived from the user supplied identity file
 		if err != nil {
 			return fmt.Errorf("could not save to file: %w", err)
 		}
@@ -567,7 +565,7 @@ func (c *Client) storeInFile() error {
 			certFile = abs
 		}
 		log.WithField("file", certFile).Debug("saving to file")
-		fh, err := os.Create(certFile)
+		fh, err := os.Create(certFile) //nolint:gosec // path derived from the user supplied identity file
 		if err != nil {
 			return fmt.Errorf("could not save to file: %w", err)
 		}
@@ -720,11 +718,11 @@ func (c *Client) authenticate() error {
 	switch {
 	case len(c.Config.LoginAuthEndpoints) > 0:
 		for _, v := range c.Config.LoginAuthEndpoints {
-			if au, ok := availableAuthenticators[v]; !ok {
+			au, ok := availableAuthenticators[v]
+			if !ok {
 				return fmt.Errorf("unknown auth endpoint name: %s", v)
-			} else {
-				finalAuthenticators = append(finalAuthenticators, au)
 			}
+			finalAuthenticators = append(finalAuthenticators, au)
 		}
 	case len(defaultAuthenticators) > 0:
 		finalAuthenticators = defaultAuthenticators
@@ -795,36 +793,25 @@ outer:
 }
 
 // parsePrivateKey parses the private key and decrypts it if necessary.
-func (c *Client) parsePrivateKey(raw []byte, desc string) (interface{}, error) {
+func (c *Client) parsePrivateKey(raw []byte, desc string) (any, error) {
 	log := Log.WithField("action", "parsePrivateKey")
-	var (
-		secret []byte
-		key    interface{}
-		err    error
-	)
+	var secret []byte
 	haveSecret := false
-outer:
 	for {
-		key, err = sshkeys.ParseEncryptedRawPrivateKey(raw, secret)
-		switch err := err.(type) {
-		case *ssh.PassphraseMissingError:
-			if haveSecret {
-				return nil, err
-			}
-			log.Debug("encrypted identity file")
-			var err2 error
-			if secret, err2 = c.getCredential("private key", desc, CredentialTypePassword, ""); err2 != nil {
-				return nil, err2
-			}
-			haveSecret = true
-		default:
-			if err == nil {
-				break outer
-			}
+		key, err := sshkeys.ParseEncryptedRawPrivateKey(raw, secret)
+		if err == nil {
+			return key, nil
+		}
+		var missing *ssh.PassphraseMissingError
+		if !errors.As(err, &missing) || haveSecret {
 			return nil, err
 		}
+		log.Debug("encrypted private key")
+		if secret, err = c.getCredential("private key", desc, CredentialTypePassword, ""); err != nil {
+			return nil, err
+		}
+		haveSecret = true
 	}
-	return key, nil
 }
 
 // discoverIdentityFile discovers users private key and certificate from file.
@@ -844,12 +831,12 @@ func (c *Client) discoverIdentityFile() error {
 
 	// Certificate
 	certFiles := []string{
-		fmt.Sprintf("%s-cert.pub", c.Config.IdentityFile),
-		fmt.Sprintf("%s-cert1.pub", c.Config.IdentityFile),
+		c.Config.IdentityFile + "-cert.pub",
+		c.Config.IdentityFile + "-cert1.pub",
 	}
 	for _, certFile := range certFiles {
 		log := log.WithField("file", certFile)
-		content, err = os.ReadFile(certFile)
+		content, err = os.ReadFile(certFile) //nolint:gosec // path derived from the user supplied identity file
 		if os.IsNotExist(err) {
 			log.Debug("no certificate file found")
 			continue
@@ -977,7 +964,7 @@ func (c *Client) connectAgent() error {
 func (c *Client) discoverCertFromAgent() error {
 	log := Log.WithField("action", "discoverCertFromAgent")
 	log.Debug("discovering certificates from the agent")
-	err := iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
+	err := iterAgentKeys(c.agentClient, func(key ssh.PublicKey, _ string) error {
 		cert, _ := key.(*ssh.Certificate)
 		if cert == nil {
 			return nil
@@ -1016,7 +1003,7 @@ func (c *Client) deleteCertsFromAgent() error {
 
 	var removeCerts []*ssh.Certificate
 	keyReferences := make(map[string]int)
-	err := iterAgentKeys(c.agentClient, func(key ssh.PublicKey, comment string) error {
+	err := iterAgentKeys(c.agentClient, func(key ssh.PublicKey, _ string) error {
 		cert, _ := key.(*ssh.Certificate)
 		if cert == nil {
 			return nil
@@ -1132,7 +1119,9 @@ func (c *Client) initREST() error {
 
 	// Let's not use Resty's SRV mechanism as we need to be connected to the same server for
 	// the duration of the session to make federated auth work.
-	if name, addrs, err := net.LookupSRV(parsed.Scheme, "tcp", parsed.Hostname()); err == nil {
+	srvCtx, cancel := context.WithTimeout(context.Background(), c.Config.Timeout)
+	defer cancel()
+	if name, addrs, err := net.DefaultResolver.LookupSRV(srvCtx, parsed.Scheme, "tcp", parsed.Hostname()); err == nil {
 		log.WithField("SRV", name).Debug("discovering with SRV records")
 		for _, addr := range addrs {
 			parsed.Host = fmt.Sprintf("%s:%d", addr.Target, addr.Port)
@@ -1150,8 +1139,8 @@ func (c *Client) initREST() error {
 }
 
 func (c *Client) printCertificate(cert *ssh.Certificate) {
-	validFrom := time.Unix(int64(cert.ValidAfter), 0)
-	validTo := time.Unix(int64(cert.ValidBefore), 0)
+	validFrom := util.CertTime(cert.ValidAfter)
+	validTo := util.CertTime(cert.ValidBefore)
 	fmt.Printf("%20s: %s (%s)", "Fingerprint",
 		ssh.FingerprintSHA256(cert.Key),
 		ssh.FingerprintLegacyMD5(cert.Key))
@@ -1162,8 +1151,12 @@ func (c *Client) printCertificate(cert *ssh.Certificate) {
 		cert.Signature.Format)
 	fmt.Printf("\n%20s: %s", "KeyId", cert.KeyId)
 	fmt.Printf("\n%20s: %s", "Valid from", validFrom)
-	fmt.Printf("\n%20s: %s", "Valid to", validTo)
-	if validTo.After(time.Now()) {
+	if cert.ValidBefore == ssh.CertTimeInfinity {
+		fmt.Printf("\n%20s: %s", "Valid to", "forever")
+	} else {
+		fmt.Printf("\n%20s: %s", "Valid to", validTo)
+	}
+	if cert.ValidBefore != ssh.CertTimeInfinity && validTo.After(time.Now()) {
 		fmt.Printf(" (expires in %s)", time.Until(validTo))
 	}
 	fmt.Printf("\n%20s:", "Principals")
@@ -1187,14 +1180,14 @@ func (c *Client) newReq() *resty.Request {
 
 type discardLogger struct{}
 
-func (discardLogger) Errorf(string, ...interface{}) {}
-func (discardLogger) Warnf(string, ...interface{})  {}
-func (discardLogger) Debugf(string, ...interface{}) {}
+func (discardLogger) Errorf(string, ...any) {}
+func (discardLogger) Warnf(string, ...any)  {}
+func (discardLogger) Debugf(string, ...any) {}
 
 // urlFor returns a versioned url
 func (c *Client) urlFor(s string) string {
-	if !strings.HasSuffix(c.rest.BaseURL, fmt.Sprintf("/%s", CurrentApiVersion)) {
-		return fmt.Sprintf("%s/%s", CurrentApiVersion, s)
+	if !strings.HasSuffix(c.rest.BaseURL, "/"+CurrentAPIVersion) {
+		return fmt.Sprintf("%s/%s", CurrentAPIVersion, s)
 	}
 	return s
 }
@@ -1264,14 +1257,14 @@ func interactiveCredentialsPrompt(name, realm, credentialType, def string) ([]by
 			if ret, err = rl.ReadPassword(prompt); err == nil {
 				return ret, nil
 			}
-			if err == readline.ErrInterrupt {
+			if errors.Is(err, readline.ErrInterrupt) {
 				return nil, err
 			}
 			fmt.Fprintf(os.Stderr, "WARNING: cannot read password: %s\n", err)
 		default:
 			var line string
 			if line, err = rl.Readline(); err != nil {
-				if err == readline.ErrInterrupt {
+				if errors.Is(err, readline.ErrInterrupt) {
 					return nil, err
 				}
 				fmt.Fprintf(os.Stderr, "WARNING: cannot read: %s\n", err)
@@ -1294,7 +1287,7 @@ func askPass(prompt string) []byte {
 	if err != nil {
 		return nil
 	}
-	proc := exec.Command(bin, prompt)
+	proc := exec.CommandContext(context.Background(), bin, prompt) //nolint:gosec // SSH_ASKPASS is user configuration, as in OpenSSH
 	out, err := proc.Output()
 	if err != nil {
 		return nil
@@ -1331,11 +1324,11 @@ func shallowCertChecker(cert *ssh.Certificate, authority ssh.PublicKey) bool {
 		return false
 	}
 
-	unixNow := time.Now().Unix()
-	if after := int64(cert.ValidAfter); after < 0 || unixNow < int64(cert.ValidAfter) {
+	now := util.CertTimestamp(time.Now())
+	if now < cert.ValidAfter {
 		return false
 	}
-	if before := int64(cert.ValidBefore); cert.ValidBefore != uint64(ssh.CertTimeInfinity) && (unixNow >= before || before < 0) {
+	if cert.ValidBefore != ssh.CertTimeInfinity && now >= cert.ValidBefore {
 		return false
 	}
 	if err := cert.SignatureKey.Verify(bytesForSigning, cert.Signature); err != nil {
@@ -1352,7 +1345,7 @@ func readMultipleLines(prompt string, cb func(l []byte) bool) error {
 	for {
 		line, err := rl.ReadSlice()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return err

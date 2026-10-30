@@ -8,7 +8,7 @@ import (
 	"github.com/aakso/ssh-inscribe/internal/server/signapi/objects"
 )
 
-func (sa *SignApi) HandleAuthDiscover(c echo.Context) error {
+func (sa *SignAPI) HandleAuthDiscover(c echo.Context) error {
 	r := make([]objects.DiscoverResult, 0, len(sa.authList))
 	for _, v := range sa.authList {
 		r = append(r, objects.DiscoverResult{
