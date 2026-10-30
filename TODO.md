@@ -89,8 +89,9 @@ limits or document a reverse proxy setup.
   `ProtectSystem=strict`, `ReadWritePaths=/var/lib/ssh-inscribe`,
   `ProtectHome=yes`, `PrivateTmp=yes`, `RestrictAddressFamilies=AF_UNIX
   AF_INET AF_INET6`. It breaks agent sockets or configuration outside the
-  default paths, so it cannot be the default. Do not use `PrivateDevices`
-  with USB HSMs.
+  default paths, so it cannot be the default. `PrivateDevices=` and
+  `ProtectClock=` imply a device allow-list; with a USB HSM add an explicit
+  `DeviceAllow=` for the token (or use it through pcscd).
 - New installs create `/etc/ssh-inscribe/server_config.yaml` as `0640
   root:sshi`. Existing installs keep their permissions (previously `0644`);
   tighten them by hand or in a future post-install script.
