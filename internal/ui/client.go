@@ -20,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/ScaleFT/sshkeys"
 	"github.com/blang/semver/v4"
@@ -235,7 +237,9 @@ func (c *Client) Login() error {
 			} else {
 				fmt.Println("CERT DETAILS:")
 			}
-			c.printCertificate(cert)
+			if err := c.printCertificate(os.Stdout, cert); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -1138,40 +1142,43 @@ func (c *Client) initREST() error {
 	return nil
 }
 
-func (c *Client) printCertificate(cert *ssh.Certificate) {
+func (c *Client) printCertificate(w io.Writer, cert *ssh.Certificate) error {
+	var b strings.Builder
 	validFrom := util.CertTime(cert.ValidAfter)
 	validTo := util.CertTime(cert.ValidBefore)
-	fmt.Printf("%20s: %s (%s)", "Fingerprint",
+	fmt.Fprintf(&b, "%20s: %s (%s)", "Fingerprint",
 		ssh.FingerprintSHA256(cert.Key),
 		ssh.FingerprintLegacyMD5(cert.Key))
-	fmt.Printf("\n%20s: %s (%s)", "CA Fingerprint",
+	fmt.Fprintf(&b, "\n%20s: %s (%s)", "CA Fingerprint",
 		ssh.FingerprintSHA256(c.ca),
 		ssh.FingerprintLegacyMD5(c.ca))
-	fmt.Printf("\n%20s: %s", "CA Signature Format",
+	fmt.Fprintf(&b, "\n%20s: %s", "CA Signature Format",
 		cert.Signature.Format)
-	fmt.Printf("\n%20s: %s", "KeyId", cert.KeyId)
-	fmt.Printf("\n%20s: %s", "Valid from", validFrom)
+	fmt.Fprintf(&b, "\n%20s: %s", "KeyId", cert.KeyId)
+	fmt.Fprintf(&b, "\n%20s: %s", "Valid from", validFrom)
 	if cert.ValidBefore == ssh.CertTimeInfinity {
-		fmt.Printf("\n%20s: %s", "Valid to", "forever")
+		fmt.Fprintf(&b, "\n%20s: %s", "Valid to", "forever")
 	} else {
-		fmt.Printf("\n%20s: %s", "Valid to", validTo)
+		fmt.Fprintf(&b, "\n%20s: %s", "Valid to", validTo)
 	}
 	if cert.ValidBefore != ssh.CertTimeInfinity && validTo.After(time.Now()) {
-		fmt.Printf(" (expires in %s)", time.Until(validTo))
+		fmt.Fprintf(&b, " (expires in %s)", time.Until(validTo))
 	}
-	fmt.Printf("\n%20s:", "Principals")
+	fmt.Fprintf(&b, "\n%20s:", "Principals")
 	for _, p := range cert.ValidPrincipals {
-		fmt.Printf("\n%20s  %s", " ", p)
+		fmt.Fprintf(&b, "\n%20s  %s", " ", p)
 	}
-	fmt.Printf("\n%20s:", "Critical Options")
+	fmt.Fprintf(&b, "\n%20s:", "Critical Options")
 	for k, v := range cert.CriticalOptions {
-		fmt.Printf("\n%20s  %s %s", " ", k, v)
+		fmt.Fprintf(&b, "\n%20s  %s %s", " ", k, v)
 	}
-	fmt.Printf("\n%20s:", "Extensions")
+	fmt.Fprintf(&b, "\n%20s:", "Extensions")
 	for k, v := range cert.Extensions {
-		fmt.Printf("\n%20s  %s %s", " ", k, v)
+		fmt.Fprintf(&b, "\n%20s  %s %s", " ", k, v)
 	}
-	fmt.Println()
+	b.WriteString("\n")
+	_, err := io.WriteString(w, b.String())
+	return err
 }
 
 func (c *Client) newReq() *resty.Request {
@@ -1205,13 +1212,18 @@ func openFederatedAuthURL(authURL string) {
 	fmt.Println("If the browser doesn't open, navigate to the URL manually")
 	// The URL comes from the server. Only hand web URLs to the OS opener,
 	// which would otherwise launch any registered protocol handler.
-	if u, err := url.Parse(authURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") {
+	if !isWebURL(authURL) {
 		Log.Warning("not opening browser, the auth URL is not an http(s) URL")
 		return
 	}
 	if err := open.Start(authURL); err != nil {
 		Log.WithError(err).Warning("cannot open browser")
 	}
+}
+
+func isWebURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
 }
 
 func getCurrentUsername() string {
@@ -1230,13 +1242,13 @@ func getCurrentUsername() string {
 func interactiveCredentialsPrompt(name, realm, credentialType, def string) ([]byte, error) {
 	var ret []byte
 	prompt := fmt.Sprintf("Enter %s for %q (%s): ",
-		strings.Title(credentialType), //nolint:staticcheck // not worth the x/text/cases and x/text/language deps
+		capitalize(credentialType),
 		name,
 		realm,
 	)
 	if def != "" {
 		prompt = fmt.Sprintf("Enter %s for %q (%s) [default: %s]: ",
-			strings.Title(credentialType), //nolint:staticcheck // not worth the x/text/cases and x/text/language deps
+			capitalize(credentialType),
 			name,
 			realm,
 			def,
@@ -1276,6 +1288,15 @@ func interactiveCredentialsPrompt(name, realm, credentialType, def string) ([]by
 		return []byte(def), nil
 	}
 	return ret, nil
+}
+
+// capitalize upper-cases the first letter of s.
+func capitalize(s string) string {
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[size:]
 }
 
 func askPass(prompt string) []byte {
