@@ -51,7 +51,7 @@ func ignoreFlagsAfter(cmds ...string) {
 	}
 
 	// Inject -- after the subcommand to signal Cobra not to try to parse flags
-	var args []string
+	var args []string //nolint:prealloc // insignificant
 	args = append(args, os.Args[:cmdIndex+1]...)
 	args = append(args, "--")
 	args = append(args, os.Args[cmdIndex+1:]...)
