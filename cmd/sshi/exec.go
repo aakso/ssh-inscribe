@@ -6,8 +6,8 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 
 	"github.com/pkg/errors"
@@ -56,11 +56,16 @@ func runExecCommand(args []string) error {
 				return err
 			}
 		default:
-			tmpFile, err := os.CreateTemp("", "sshi_adhocagent")
+			// A private directory keeps other local users away from the
+			// socket path between creation and listen.
+			dir, err := os.MkdirTemp("", "sshi-")
 			if err != nil {
 				return err
 			}
-			adHocAgentSock = tmpFile.Name()
+			defer func() {
+				_ = os.RemoveAll(dir)
+			}()
+			adHocAgentSock = filepath.Join(dir, "agent.sock")
 			ln, err = util.LocalListen(adHocAgentSock)
 			if err != nil {
 				return err
@@ -110,30 +115,34 @@ func runExecCommand(args []string) error {
 
 func startAdhocAgent(ln net.Listener, agentImpl agent.Agent) {
 	log := Log.WithField("worker", "adhocAgent")
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				if strings.Contains(err.Error(), "use of closed network connection") {
+				if errors.Is(err, net.ErrClosed) {
 					log.Debug("shutting down")
 					return
 				}
 				log.WithError(err).Error("accept error")
+				continue
 			}
+			wg.Add(1)
 			go func(conn net.Conn) {
 				log := log.WithField("action", "connection")
 				log.Debug("new connection")
 				defer wg.Done()
-				if err := agent.ServeAgent(agentImpl, conn); err != nil && err != io.EOF {
+				defer func() {
+					_ = conn.Close()
+				}()
+				if err := agent.ServeAgent(agentImpl, conn); !errors.Is(err, io.EOF) {
 					log.WithError(err).Error("agent error")
 				}
 				log.Debug("connection closed")
 			}(conn)
-			wg.Add(1)
 		}
 	}()
-	wg.Add(1)
 	log.Debug("agent started")
 }
 

@@ -322,7 +322,6 @@ func (c *Client) caChallenge() error {
 		}
 	}
 	log.Debug("sending ca key to the server to initiate challenge")
-	log.Debug(string(content))
 	res, err := c.newReq().
 		SetHeader("X-Auth", fmt.Sprintf("Bearer %s", c.signerToken)).
 		SetBody(content).
@@ -508,6 +507,11 @@ func (c *Client) storeInFile() error {
 		fhPriv, err := os.OpenFile(c.Config.IdentityFile, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600)
 		if err != nil {
 			return errors.Wrap(err, "could not save to file")
+		}
+		// O_CREATE mode does not apply to an existing file
+		if err := fhPriv.Chmod(0o600); err != nil {
+			closeFile(fhPriv)
+			return errors.Wrap(err, "could not set private key file permissions")
 		}
 		defer closeFile(fhPriv)
 		opts := &sshkeys.MarshalOptions{}
@@ -1206,10 +1210,16 @@ func (c *Client) Close() {
 	}
 }
 
-func openFederatedAuthURL(url string) {
-	fmt.Printf("Attempting to open browser to URL: %s\n", url)
+func openFederatedAuthURL(authURL string) {
+	fmt.Printf("Attempting to open browser to URL: %s\n", authURL)
 	fmt.Println("If the browser doesn't open, navigate to the URL manually")
-	if err := open.Start(url); err != nil {
+	// The URL comes from the server. Only hand web URLs to the OS opener,
+	// which would otherwise launch any registered protocol handler.
+	if u, err := url.Parse(authURL); err != nil || (u.Scheme != "https" && u.Scheme != "http") {
+		Log.Warning("not opening browser, the auth URL is not an http(s) URL")
+		return
+	}
+	if err := open.Start(authURL); err != nil {
 		Log.WithError(err).Warning("cannot open browser")
 	}
 }
@@ -1292,10 +1302,7 @@ func askPass(prompt string) []byte {
 	if err != nil {
 		return nil
 	}
-	if out[len(out)-1] == '\n' {
-		out = out[0 : len(out)-1]
-	}
-	return out
+	return bytes.TrimSuffix(out, []byte("\n"))
 }
 
 func iterAgentKeys(agentClient agent.Agent, fn func(key ssh.PublicKey, comment string) error) error {

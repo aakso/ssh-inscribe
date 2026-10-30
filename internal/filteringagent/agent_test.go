@@ -345,3 +345,14 @@ func Test_filteringAgent_Sign(t *testing.T) {
 		assert.EqualError(t, ErrNoSuchKey, err.Error())
 	})
 }
+
+func Test_filteringAgent_AddPropagatesErrors(t *testing.T) {
+	ta := agent.NewKeyring()
+	assert.NoError(t, ta.Lock([]byte("passphrase")))
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if !assert.NoError(t, err) {
+		return
+	}
+	fa := New(ta, nil, "", "")
+	assert.Error(t, fa.Add(agent.AddedKey{PrivateKey: key}), "a failed add must not be reported as success")
+}

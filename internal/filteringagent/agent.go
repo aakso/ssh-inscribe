@@ -108,7 +108,7 @@ func (a *filteringAgent) Add(key agent.AddedKey) error {
 		return err
 	}
 	if err := a.agent.Add(key); err != nil {
-		return nil
+		return err
 	}
 	a.addedKeys[fingerprintSHA256(signer.PublicKey())] = true
 	if key.Certificate != nil {
