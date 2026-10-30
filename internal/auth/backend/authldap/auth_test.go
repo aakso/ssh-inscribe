@@ -130,3 +130,20 @@ func TestSearchFilterEscaping(t *testing.T) {
 	// Other templates get the raw values
 	assert.Equal("alice)(sAMAccountName=*", inst.RenderTpl(UserBindDN, tplCtx))
 }
+
+// The test directory does not implement StartTLS. Requiring it must fail the
+// login instead of falling back to plain text.
+func TestStartTLSIsEnforced(t *testing.T) {
+	conf := testConf
+	conf.ServerURL = testConf.ServerURL + "/?startTLS=true"
+	inst, err := New(&conf)
+	if !assert.NoError(t, err) {
+		return
+	}
+	actx, ok := inst.Authenticate(nil, &auth.Credentials{
+		UserIdentifier: TestUser,
+		Secret:         []byte(TestPassword),
+	})
+	assert.False(t, ok)
+	assert.Nil(t, actx)
+}

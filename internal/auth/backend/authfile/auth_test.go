@@ -8,6 +8,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
 	"github.com/aakso/ssh-inscribe/internal/logging"
@@ -128,4 +129,12 @@ func TestAuthCriticalOptions(t *testing.T) {
 	if assert.True(ok) {
 		assert.Equal(map[string]string{"source-address": "10.0.0.0/8"}, ctx.GetCriticalOptions())
 	}
+}
+
+func TestDummyHashMatchesDefaultCost(t *testing.T) {
+	// Unknown users are compared against dummyHash to take as long as known
+	// users with a default cost hash.
+	cost, err := bcrypt.Cost(dummyHash)
+	assert.NoError(t, err)
+	assert.Equal(t, bcrypt.DefaultCost, cost)
 }

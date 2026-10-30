@@ -354,3 +354,22 @@ func TestUnsafePrincipalsAreDropped(t *testing.T) {
 		assert.Equal(t, []string{"devs"}, actx.Principals)
 	}
 }
+
+func TestFederationCallbackIdPError(t *testing.T) {
+	ab := getAuthenticator()
+	pending, ok := ab.Authenticate(nil, &auth.Credentials{})
+	if !assert.True(t, ok) {
+		return
+	}
+	state := pending.GetMetaString(stateKey)
+	err := ab.FederationCallback(url.Values{
+		stateKey:            {state},
+		"error":             {"access_denied"},
+		"error_description": {"user cancelled"},
+	})
+	assert.ErrorContains(t, err, "access_denied")
+
+	actx, ok := ab.Authenticate(pending, &auth.Credentials{})
+	assert.True(t, ok)
+	assert.Equal(t, auth.StatusPending, actx.Status, "the flow stays pending")
+}

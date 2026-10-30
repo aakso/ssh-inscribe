@@ -16,6 +16,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"golang.org/x/crypto/ssh"
 
@@ -617,4 +618,29 @@ func TestJWTClaimsAreNotSharedBetweenRequests(t *testing.T) {
 		Extensions: map[string]string{"permit-pty": ""},
 	})
 	assert.Equal(t, map[string]string{"permit-pty": ""}, unprivileged)
+}
+
+func TestSignWarnsAboutUnsafePrincipals(t *testing.T) {
+	hook := logtest.NewLocal(Log.Logger)
+	t.Cleanup(hook.Reset)
+	withAPI(func(e *echo.Echo, signapi *SignAPI) {
+		if !assert.NoError(t, signapi.signer.AddSigningKey(testCaPrivatePem, nil, "")) {
+			return
+		}
+		actx := &auth.AuthContext{Status: auth.StatusCompleted, Principals: []string{"devs", "Sales, EMEA"}}
+		ss, _ := signapi.makeToken(actx).SignedString(signapi.tkey)
+		req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/sign", bytes.NewBuffer(testUserPublic))
+		req.Header.Set("X-Auth", "Bearer "+ss)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code, "the principal is still issued")
+
+		var warned bool
+		for _, entry := range hook.AllEntries() {
+			if entry.Level == logrus.WarnLevel && entry.Data["principal"] == "Sales, EMEA" {
+				warned = true
+			}
+		}
+		assert.True(t, warned, "expected a warning about the comma principal")
+	})
 }
