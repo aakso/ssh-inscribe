@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -81,4 +82,24 @@ func TestReconnectChecksSocketPath(t *testing.T) {
 
 	ks = &KeySignerService{authSocketLoc: filepath.Join(t.TempDir(), "missing"), log: Log}
 	assert.False(t, ks.reconnect())
+}
+
+func TestReconnectClosesPreviousConnection(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "agent.sock")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", sock)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = ln.Close() })
+
+	old, peer := net.Pipe()
+	t.Cleanup(func() { _ = peer.Close() })
+	// A pipe write blocks until read, so bound it: an open pipe times out,
+	// a closed one fails immediately.
+	require.NoError(t, old.SetWriteDeadline(time.Now().Add(100*time.Millisecond)))
+
+	ks := &KeySignerService{authSocketLoc: sock, log: Log, conn: old}
+	require.True(t, ks.reconnect())
+	t.Cleanup(func() { _ = ks.conn.Close() })
+
+	_, err = old.Write([]byte{0})
+	assert.ErrorIs(t, err, io.ErrClosedPipe, "the previous connection must be closed")
 }

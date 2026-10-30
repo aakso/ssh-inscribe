@@ -447,6 +447,9 @@ func (ks *KeySignerService) reconnect() bool {
 		return false
 	}
 	ks.log.Info("connected to ssh-agent")
+	if ks.conn != nil {
+		_ = ks.conn.Close()
+	}
 	ks.conn = conn
 	ks.client = agent.NewClient(conn)
 	return true
