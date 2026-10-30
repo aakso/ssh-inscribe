@@ -2,6 +2,8 @@ package signapi
 
 import (
 	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -708,4 +711,68 @@ func TestJWTOnlyHS256IsAccepted(t *testing.T) {
 		e.ServeHTTP(rec, req)
 		assert.Equal(t, tc.code, rec.Code, name)
 	}
+}
+
+// Concurrent sign requests from different users must each get a certificate
+// for their own identity. With a JWT claims object shared between requests,
+// overlapping requests swapped principals between users or crashed the
+// server with a concurrent map access.
+func TestConcurrentSignRequestsKeepIdentities(t *testing.T) {
+	withAPI(t, func(e *echo.Echo, sa *SignAPI) {
+		require.NoError(t, sa.signer.AddSigningKey(testCaPrivatePem, nil, ""))
+
+		type user struct {
+			name, token, auditID string
+			pub                  []byte
+		}
+		users := []*user{{name: "alice", auditID: "audit-alice"}, {name: "bob", auditID: "audit-bob"}}
+		for _, u := range users {
+			pub, _, err := ed25519.GenerateKey(rand.Reader)
+			require.NoError(t, err)
+			sshPub, err := ssh.NewPublicKey(pub)
+			require.NoError(t, err)
+			u.pub = ssh.MarshalAuthorizedKey(sshPub)
+			u.token, err = sa.makeToken(&auth.AuthContext{
+				Status:      auth.StatusCompleted,
+				SubjectName: u.name,
+				Principals:  []string{u.name},
+				Extensions:  map[string]string{"permit-" + u.name: ""},
+				AuthMeta:    map[string]any{auth.MetaAuditID: u.auditID},
+			}).SignedString(sa.tkey)
+			require.NoError(t, err)
+		}
+
+		sign := func(u *user) {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/sign", bytes.NewBuffer(u.pub))
+			req.Header.Set("X-Auth", "Bearer "+u.token)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if !assert.Equal(t, http.StatusOK, rec.Code) {
+				return
+			}
+			k, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+			if !assert.NoError(t, err) {
+				return
+			}
+			cert := k.(*ssh.Certificate)
+			assert.Equal(t, []string{u.name}, cert.ValidPrincipals)
+			assert.Equal(t, map[string]string{"permit-" + u.name: ""}, cert.Extensions)
+			assert.Contains(t, cert.KeyId, `subject="`+u.name+`"`)
+			assert.Contains(t, cert.KeyId, `audit_id="`+u.auditID+`"`)
+		}
+
+		var wg sync.WaitGroup
+		for range 100 {
+			for _, u := range users {
+				wg.Go(func() { sign(u) })
+			}
+			wg.Wait() // pairs of overlapping requests
+		}
+		for range 100 {
+			for _, u := range users {
+				wg.Go(func() { sign(u) })
+			}
+		}
+		wg.Wait() // and a burst
+	})
 }
