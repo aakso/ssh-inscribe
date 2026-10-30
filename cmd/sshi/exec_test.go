@@ -5,11 +5,15 @@ package main
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh/agent"
@@ -18,6 +22,9 @@ import (
 )
 
 func TestAdhocAgent(t *testing.T) {
+	hook := logtest.NewLocal(Log.Logger)
+	t.Cleanup(hook.Reset)
+
 	sock := filepath.Join(t.TempDir(), "agent.sock")
 	ln, err := util.LocalListen(sock)
 	require.NoError(t, err)
@@ -26,43 +33,48 @@ func TestAdhocAgent(t *testing.T) {
 	_, key, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	require.NoError(t, keyring.Add(agent.AddedKey{PrivateKey: key, Comment: "test"}))
-	startAdhocAgent(ln, keyring)
+	adhoc := startAdhocAgent(ln, keyring)
 
-	// Several clients, one after another and concurrently
-	for range 3 {
-		conn, err := util.DialUnix(sock)
-		require.NoError(t, err)
-		keys, err := agent.NewClient(conn).List()
-		require.NoError(t, err)
-		assert.Len(t, keys, 1)
-		_ = conn.Close()
+	list := func(conn net.Conn) error {
+		_, err := agent.NewClient(conn).List()
+		return err
 	}
+	var wg sync.WaitGroup
+	for range 5 {
+		wg.Go(func() {
+			conn, err := util.DialUnix(sock)
+			if assert.NoError(t, err) {
+				assert.NoError(t, list(conn))
+				_ = conn.Close()
+			}
+		})
+	}
+	wg.Wait()
 
-	// Closing the listener stops the agent once open connections are done
-	open, err := util.DialUnix(sock)
+	// A connection kept open, e.g. by a ControlPersist ssh master with agent
+	// forwarding, must not keep sshi from exiting.
+	held, err := util.DialUnix(sock)
 	require.NoError(t, err)
-	_, err = agent.NewClient(open).List() // make sure it has been accepted
-	require.NoError(t, err)
-	require.NoError(t, ln.Close())
+	t.Cleanup(func() { _ = held.Close() })
+	require.NoError(t, list(held))
+
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
+		adhoc.Close()
 		close(done)
 	}()
 	select {
 	case <-done:
-		t.Fatal("agent stopped while a connection was still open")
-	case <-time.After(100 * time.Millisecond):
-	}
-	_ = open.Close()
-	select {
-	case <-done:
 	case <-time.After(5 * time.Second):
-		t.Fatal("agent did not stop after the listener was closed")
+		t.Fatal("Close did not return while a connection was open")
 	}
-
+	assert.Error(t, list(held), "open connections are closed")
 	_, err = util.DialUnix(sock)
-	assert.Error(t, err)
+	assert.Error(t, err, "listener is closed")
+
+	for _, e := range hook.AllEntries() {
+		assert.NotEqual(t, logrus.ErrorLevel, e.Level, "shutting down must not log errors: %s %v", e.Message, e.Data)
+	}
 }
 
 func TestLocalListenSocketIsPrivate(t *testing.T) {

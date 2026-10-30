@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh/agent"
 
@@ -37,7 +39,6 @@ var ExecCmd = &cobra.Command{
 }
 var (
 	agentFilter = true
-	wg          = new(sync.WaitGroup)
 	Log         = logging.GetLogger("exec").WithField("pkg", "cmd/exec")
 )
 
@@ -73,14 +74,18 @@ func runExecCommand(args []string) error {
 			}
 		}
 		Log.WithField("listener", ln.Addr()).Debug("started adhoc agent listener")
-
-		defer func() {
-			_ = ln.Close()
-			wg.Wait()
-		}()
 	}
+	var adhoc *adhocAgent
+	defer func() {
+		switch {
+		case adhoc != nil:
+			adhoc.Close()
+		case ln != nil:
+			_ = ln.Close()
+		}
+	}()
 	if authSockName == "" {
-		startAdhocAgent(ln, agent.NewKeyring())
+		adhoc = startAdhocAgent(ln, agent.NewKeyring())
 		if err := os.Setenv("SSH_AUTH_SOCK", adHocAgentSock); err != nil {
 			return err
 		}
@@ -101,8 +106,11 @@ func runExecCommand(args []string) error {
 		if err != nil {
 			return fmt.Errorf("could not connect to ssh-agent: %w", err)
 		}
+		defer func() {
+			_ = conn.Close()
+		}()
 		targetAgent := agent.NewClient(conn)
-		startAdhocAgent(ln, filteringagent.New(
+		adhoc = startAdhocAgent(ln, filteringagent.New(
 			targetAgent,
 			ca,
 			util.SignatureFormatFromSigningOptionAndCA(c.Config.SigningOption, ca),
@@ -114,35 +122,91 @@ func runExecCommand(args []string) error {
 	return runCommand(args)
 }
 
-func startAdhocAgent(ln net.Listener, agentImpl agent.Agent) {
-	log := Log.WithField("worker", "adhocAgent")
-	wg.Go(func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
-					log.Debug("shutting down")
-					return
-				}
-				log.WithError(err).Error("accept error")
-				continue
+// adhocAgent serves an agent on a local listener while a command runs.
+type adhocAgent struct {
+	ln   net.Listener
+	impl agent.Agent
+	log  *logrus.Entry
+	wg   sync.WaitGroup
+
+	mu     sync.Mutex
+	conns  map[net.Conn]struct{}
+	closed bool
+}
+
+func startAdhocAgent(ln net.Listener, impl agent.Agent) *adhocAgent {
+	a := &adhocAgent{
+		ln:    ln,
+		impl:  impl,
+		log:   Log.WithField("worker", "adhocAgent"),
+		conns: map[net.Conn]struct{}{},
+	}
+	a.wg.Go(a.accept)
+	a.log.Debug("agent started")
+	return a
+}
+
+func (a *adhocAgent) accept() {
+	for {
+		conn, err := a.ln.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				a.log.Debug("shutting down")
+				return
 			}
-			wg.Add(1)
-			go func(conn net.Conn) {
-				log := log.WithField("action", "connection")
-				log.Debug("new connection")
-				defer wg.Done()
-				defer func() {
-					_ = conn.Close()
-				}()
-				if err := agent.ServeAgent(agentImpl, conn); !errors.Is(err, io.EOF) {
-					log.WithError(err).Error("agent error")
-				}
-				log.Debug("connection closed")
-			}(conn)
+			a.log.WithError(err).Error("accept error")
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
-	})
-	log.Debug("agent started")
+		if !a.track(conn) {
+			_ = conn.Close()
+			continue
+		}
+		a.wg.Go(func() { a.serve(conn) })
+	}
+}
+
+func (a *adhocAgent) track(conn net.Conn) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed {
+		return false
+	}
+	a.conns[conn] = struct{}{}
+	return true
+}
+
+func (a *adhocAgent) serve(conn net.Conn) {
+	log := a.log.WithField("action", "connection")
+	log.Debug("new connection")
+	defer func() {
+		a.mu.Lock()
+		delete(a.conns, conn)
+		a.mu.Unlock()
+		_ = conn.Close()
+	}()
+	if err := agent.ServeAgent(a.impl, conn); !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
+		log.WithError(err).Error("agent error")
+	}
+	log.Debug("connection closed")
+}
+
+// Close stops the agent. Connections still open, e.g. held by a background
+// ssh master process, are closed rather than waited for.
+func (a *adhocAgent) Close() {
+	a.mu.Lock()
+	a.closed = true
+	conns := make([]net.Conn, 0, len(a.conns))
+	for c := range a.conns {
+		conns = append(conns, c)
+	}
+	a.mu.Unlock()
+
+	_ = a.ln.Close()
+	for _, c := range conns {
+		_ = c.Close()
+	}
+	a.wg.Wait()
 }
 
 func runCommand(args []string) error {
