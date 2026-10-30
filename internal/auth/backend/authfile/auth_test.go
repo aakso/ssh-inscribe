@@ -59,9 +59,15 @@ users:
   password: $2a$11$aaTtm52uHC5dzqf1CEMzqOQ9Fj1sM5QzliEwmqmcON5XnuCnVUWMi # foo
   principals:
   - p1
+  criticalOptions:
+    force-command: /bin/true
 - name: user3
   principals:
   - p1
+- name: user4
+  password: foo
+  criticaloptions:
+    source-address: 10.0.0.0/8
 `
 	loc := makeFile(t.TempDir(), data, "yaml")
 	auth, err := New(&Config{
@@ -110,4 +116,16 @@ func TestAuthEmptyPassword(t *testing.T) {
 	assert.False(ok, "user without a configured password must not be able to log in")
 	_, ok = testAuth.Authenticate(nil, &auth.Credentials{UserIdentifier: "user1", Secret: nil})
 	assert.False(ok)
+}
+
+func TestAuthCriticalOptions(t *testing.T) {
+	assert := assert.New(t)
+	ctx, ok := testAuth.Authenticate(nil, &auth.Credentials{UserIdentifier: "user2", Secret: []byte("foo")})
+	if assert.True(ok) {
+		assert.Equal(map[string]string{"force-command": "/bin/true"}, ctx.GetCriticalOptions())
+	}
+	ctx, ok = testAuth.Authenticate(nil, &auth.Credentials{UserIdentifier: "user4", Secret: []byte("foo")})
+	if assert.True(ok) {
+		assert.Equal(map[string]string{"source-address": "10.0.0.0/8"}, ctx.GetCriticalOptions())
+	}
 }

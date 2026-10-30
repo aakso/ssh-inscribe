@@ -83,7 +83,7 @@ func (fa *AuthFile) Authenticate(pctx *auth.AuthContext, creds *auth.Credentials
 		Parent:          pctx,
 		SubjectName:     entry.Name,
 		Principals:      entry.Principals,
-		CriticalOptions: entry.CriticalOptions,
+		CriticalOptions: entry.criticalOptions(),
 		Extensions:      entry.Extensions,
 		Authenticator:   fa.Name(),
 		AuthMeta:        creds.Meta,
@@ -124,9 +124,27 @@ func New(config *Config) (*AuthFile, error) {
 var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy password"), bcrypt.DefaultCost)
 
 type UserEntry struct {
-	Name            string
-	Password        string
-	Principals      []string
-	CriticalOptions map[string]string
-	Extensions      map[string]string
+	Name       string
+	Password   string
+	Principals []string
+	// CriticalOptions is the documented key. Without the tag yaml.v2 only
+	// matched "criticaloptions" and silently ignored the documented
+	// spelling; accept both.
+	CriticalOptions      map[string]string `yaml:"criticalOptions"`
+	CriticalOptionsLower map[string]string `yaml:"criticaloptions"`
+	Extensions           map[string]string
+}
+
+func (e UserEntry) criticalOptions() map[string]string {
+	if len(e.CriticalOptionsLower) == 0 {
+		return e.CriticalOptions
+	}
+	r := make(map[string]string, len(e.CriticalOptions)+len(e.CriticalOptionsLower))
+	for k, v := range e.CriticalOptionsLower {
+		r[k] = v
+	}
+	for k, v := range e.CriticalOptions {
+		r[k] = v
+	}
+	return r
 }
