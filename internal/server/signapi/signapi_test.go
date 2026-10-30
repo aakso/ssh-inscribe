@@ -275,6 +275,23 @@ func TestAddCaKeyWithChallenge(t *testing.T) {
 	})
 }
 
+func TestAddCaKeyRequiresCompletedAuth(t *testing.T) {
+	withApi(func(e *echo.Echo, signapi *SignApi) {
+		pending := &auth.AuthContext{Status: auth.StatusPending}
+		ss, _ := signapi.makeToken(pending).SignedString(signapi.tkey)
+
+		for _, path := range []string{"/v1/ca", "/v1/ca?init_challenge=true", "/v1/ca/response"} {
+			req, _ := http.NewRequest(echo.POST, path, bytes.NewBuffer(testCaPrivatePem))
+			req.Header.Set("X-Auth", "Bearer "+ss)
+			req.SetBasicAuth("", "passphrase")
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, path)
+		}
+		assert.False(t, signapi.signer.Ready(), "no key should have been added")
+	})
+}
+
 func TestSigning(t *testing.T) {
 	withApi(func(e *echo.Echo, signapi *SignApi) {
 		actx := fakeAuthContext

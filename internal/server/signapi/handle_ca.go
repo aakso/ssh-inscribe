@@ -27,6 +27,9 @@ func (sa *SignApi) HandleAddKey(c echo.Context) error {
 	if actx == nil {
 		return errors.New("no auth context")
 	}
+	if !actx.IsValid() {
+		return echo.NewHTTPError(http.StatusBadRequest, "auth context is not valid")
+	}
 	auditId, _ := actx.GetAuthMeta()[auth.MetaAuditID].(string)
 	log := Log.WithField("audit_id", auditId)
 
@@ -65,6 +68,9 @@ func (sa *SignApi) HandleCaChallenge(c echo.Context) error {
 	}
 	if actx == nil {
 		return errors.New("no auth context")
+	}
+	if !actx.IsValid() {
+		return echo.NewHTTPError(http.StatusBadRequest, "auth context is not valid")
 	}
 	auditId, _ := actx.GetAuthMeta()[auth.MetaAuditID].(string)
 	log := Log.WithField("audit_id", auditId)
