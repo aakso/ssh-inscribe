@@ -91,10 +91,20 @@ func (ao *AuthOIDC) setClaims(state string, claims map[string]any) error {
 	return nil
 }
 
-func (ao *AuthOIDC) deleteState(state string) {
+// takeCompleted reports whether the request exists and, if its callback has
+// completed, removes it and returns its claims. Taking and removing happen
+// under one lock so that a request completes only once.
+func (ao *AuthOIDC) takeCompleted(state string) (map[string]any, bool) {
 	ao.Lock()
 	defer ao.Unlock()
-	delete(ao.pendingRequests, state)
+	e, ok := ao.pendingRequests[state]
+	if !ok || ao.expired(e, time.Now()) {
+		return nil, false
+	}
+	if e.claims != nil {
+		delete(ao.pendingRequests, state)
+	}
+	return e.claims, true
 }
 
 // Return auth request if state key matches and the request hasn't expired
@@ -156,10 +166,9 @@ func (ao *AuthOIDC) completeFlow(pctx *auth.AuthContext) (*auth.AuthContext, boo
 	log = log.WithField("audit_id", auditID).
 		WithField("state", state)
 	// Check whether this is a started authorization
-	if entry, ok := ao.getState(state); ok {
-		if entry.claims != nil {
-			ao.deleteState(state)
-			if err := ao.fillAuthContext(pctx, entry.claims); err != nil {
+	if claims, ok := ao.takeCompleted(state); ok {
+		if claims != nil {
+			if err := ao.fillAuthContext(pctx, claims); err != nil {
 				log.WithError(err).Warn("authentication rejected")
 				return nil, false
 			}

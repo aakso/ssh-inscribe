@@ -15,6 +15,7 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
 )
@@ -337,7 +338,7 @@ func TestStateConcurrencySafe(_ *testing.T) {
 				_ = ab.saveState(st, entryState{})
 				_, _ = ab.getState(st)
 				_ = ab.setClaims(st, map[string]any{})
-				ab.deleteState(st)
+				_, _ = ab.takeCompleted(st)
 			}
 		})
 	}
@@ -372,4 +373,39 @@ func TestFederationCallbackIdPError(t *testing.T) {
 	actx, ok := ab.Authenticate(pending, &auth.Credentials{})
 	assert.True(t, ok)
 	assert.Equal(t, auth.StatusPending, actx.Status, "the flow stays pending")
+}
+
+func TestCompletionIsSingleUse(t *testing.T) {
+	ab := getAuthenticator()
+	var state string
+	tsrv := tokenServer(t, ab, &state, func(nonce string) *testIDClaims {
+		return &testIDClaims{Name: "x", Groups: []string{"g"}, Nonce: nonce}
+	})
+	defer tsrv.Close()
+	ab.oauthConfig.Endpoint.TokenURL = tsrv.URL
+
+	pending, ok := ab.Authenticate(nil, &auth.Credentials{})
+	require.True(t, ok)
+	state = pending.GetMetaString(stateKey)
+	require.NoError(t, ab.FederationCallback(url.Values{stateKey: {state}, codeKey: {"code"}}))
+
+	// Concurrent polls with the same pending token: only one may complete.
+	var (
+		wg        sync.WaitGroup
+		mu        sync.Mutex
+		completed int
+	)
+	for range 20 {
+		wg.Go(func() {
+			pctx := *pending // each request decodes its own copy of the token
+			actx, ok := ab.Authenticate(&pctx, &auth.Credentials{})
+			if ok && actx.Status == auth.StatusCompleted {
+				mu.Lock()
+				completed++
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+	assert.Equal(t, 1, completed)
 }
