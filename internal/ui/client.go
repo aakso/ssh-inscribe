@@ -1199,12 +1199,16 @@ func (c *Client) urlFor(s string) string {
 	return s
 }
 
+// Close closes the agent connection. It is safe to call more than once.
 func (c *Client) Close() {
-	if c.agentClient != nil {
-		if err := c.agentConn.Close(); err != nil {
-			Log.WithError(err).Error("failed to close agent connection")
-		}
+	if c.agentConn == nil {
+		return
 	}
+	if err := c.agentConn.Close(); err != nil {
+		Log.WithError(err).Error("failed to close agent connection")
+	}
+	c.agentConn = nil
+	c.agentClient = nil
 }
 
 func openFederatedAuthURL(authURL string) {

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -301,6 +302,18 @@ func TestLoginWithAgent(t *testing.T) {
 	keys, err = keyring.List()
 	require.NoError(t, err)
 	assert.Empty(t, keys)
+}
+
+func TestCloseIsIdempotent(t *testing.T) {
+	serveKeyring(t)
+	hook := logtest.NewLocal(Log.Logger)
+	t.Cleanup(hook.Reset)
+
+	c := &Client{Config: &Config{}}
+	require.NoError(t, c.connectAgent())
+	c.Close()
+	c.Close() // sshi exec closes explicitly and again when returning
+	assert.Empty(t, hook.AllEntries(), "a second Close must not log errors")
 }
 
 func TestGetCAAndVersion(t *testing.T) {
