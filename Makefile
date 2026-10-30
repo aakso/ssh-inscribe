@@ -32,16 +32,21 @@ vet:
 fmt-check:
 	@out="$$(gofmt -l cmd internal)"; if [ -n "$$out" ]; then echo "gofmt needed:"; echo "$$out"; exit 1; fi
 
-GOLANGCI_LINT = go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+BIN = $(CURDIR)/.bin
+GOLANGCI_LINT = $(BIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+
+$(GOLANGCI_LINT):
+	GOBIN=$(BIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	mv $(BIN)/golangci-lint $@
 
 # sshi is also built for Windows, lint those files too
 .PHONY: lint
-lint:
+lint: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) run ./...
 	GOOS=windows $(GOLANGCI_LINT) run ./...
 
 .PHONY: fmt
-fmt:
+fmt: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) fmt ./...
 
 .PHONY: vuln
