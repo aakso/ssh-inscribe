@@ -66,6 +66,16 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 		err = errors.Wrap(err, "cannot parse public key")
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
+	if _, ok := pubKey.(*ssh.Certificate); ok {
+		return echo.NewHTTPError(http.StatusBadRequest, "a plain public key is required, not a certificate")
+	}
+
+	// OpenSSH treats a certificate without principals as valid for any
+	// principal in some configurations, so never issue one.
+	if len(actx.GetPrincipals()) == 0 {
+		log.Warn("refusing to issue a certificate without principals")
+		return echo.NewHTTPError(http.StatusForbidden, "no principals available for the certificate")
+	}
 
 	validBefore := time.Now().Add(sa.defaultCertLife)
 

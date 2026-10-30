@@ -491,6 +491,40 @@ func TestSigning(t *testing.T) {
 			assert.Zero(t, remainingPrincipals)
 		})
 
+		t.Run("TestSignRefusesEmptyPrincipals", func(t *testing.T) {
+			// A certificate without principals is valid for any user on hosts
+			// that trust the CA via authorized_keys cert-authority without a
+			// principals= option.
+			buf := bytes.NewBuffer(testUserPublic)
+			u, _ := url.Parse("/v1/sign")
+			q := u.Query()
+			q.Set("include_principals", "no-such-principal")
+			u.RawQuery = q.Encode()
+			req, _ := http.NewRequest(echo.POST, u.String(), buf)
+			req.Header.Set("X-Auth", "Bearer "+ss)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusForbidden, rec.Code)
+			_, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+			assert.Error(t, err, "we shouldn't have received a certificate")
+		})
+
+		t.Run("TestSignRejectsCertificateAsKey", func(t *testing.T) {
+			buf := bytes.NewBuffer(testUserPublic)
+			req, _ := http.NewRequest(echo.POST, "/v1/sign", buf)
+			req.Header.Set("X-Auth", "Bearer "+ss)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			if !assert.Equal(t, http.StatusOK, rec.Code) {
+				return
+			}
+			req, _ = http.NewRequest(echo.POST, "/v1/sign", bytes.NewBuffer(rec.Body.Bytes()))
+			req.Header.Set("X-Auth", "Bearer "+ss)
+			rec = httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+		})
+
 		t.Run("TestSignWithInvalidMaxPrincipalsPerCertificate", func(t *testing.T) {
 			cases := []struct {
 				name string
