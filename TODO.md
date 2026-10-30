@@ -40,54 +40,36 @@ as PEM and are not affected.
 
 ## Security
 
-### Restrict CA key upload (breaking)
+### Require caAdminPrincipals (breaking)
 
-`POST /v1/ca` and `/v1/ca/response` accept any user with a completed login
-whenever no signing key is loaded, e.g. after a restart. Whoever uploads
-first decides the CA key (unless `certSigningKeyFingerprint` is set, which is
-strongly recommended meanwhile).
-
-Add a server setting such as `caAdmins` (subject names and/or principal
-globs) and refuse uploads from anyone else. Decide whether an unset list
-disables API upload (secure, breaking for `sshi ca add` users) or keeps the
-current behaviour with a warning.
+`caAdminPrincipals` limits CA key uploads (`POST /v1/ca`,
+`/v1/ca/response`) to logins with a matching principal. When it is unset,
+any completed login may still upload a key while none is loaded (a warning
+is logged at startup unless `certSigningKeyFingerprint` is set). Consider
+disabling API upload when the list is unset.
 
 ### Reject weak user keys and SHA-1 signatures (breaking)
 
 The server signs any public key type and size the client sends, and clients
 may request `signing_option=ssh-rsa` (SHA-1 signature). Reject DSA keys and
 RSA keys below 2048 bits, and make `ssh-rsa` signatures opt-in through server
-configuration.
+configuration. Check first which algorithms older network devices that trust
+the CA support.
 
-### Enforce safe principals for LDAP (breaking)
+### LDAP: default for userNamePrincipalAttribute (breaking)
 
-All released OpenSSH versions (up to 10.2) split certificate principals on
-commas when matching an `authorized_keys` `principals="..."` option, so a
-principal `"x,admins"` also matches `admins`. OIDC principals with commas or
-control characters are now dropped; for other backends the server only logs
-a warning at signing time, because directory group names with commas may be
-in legitimate use with `AuthorizedPrincipalsFile` (exact match). Check the
-logs for `principal contains a comma`, then enforce for all backends.
+`userNamePrincipalAttribute` is empty by default, so the username principal
+is still the name as typed. Consider a default (e.g. `sAMAccountName`, to go
+with the AD oriented defaults) once deployments have set it explicitly.
 
-### LDAP: derive the username principal from the directory (breaking)
+### LDAP: check the AD domain in verifyBoundIdentity
 
-With `userNamePrincipal: true` (the default) the principal is the username as
-typed by the user. Directories normalise names (case, UPN vs. sAMAccountName),
-so the typed form can differ from the canonical one. Prefer a configurable
-attribute of the found user entry, e.g. `sAMAccountName` or `uid`.
-
-### LDAP: verify the bound identity
-
-The backend binds with the rendered `userBindDN` and then searches with
-`userSearchFilter`, but does not check that the entry found is the one it
-bound as. With the usual templates both are derived from the same username,
-but a mismatch between the two templates (or directory specific bind name
-handling, e.g. AD UPNs) could attach another entry's groups. Compare the DN
-of the found entry with the bound identity (RFC 4532 WhoAmI, supported by
-OpenLDAP, 389 DS and AD).
-
-Also note that any `startTLS` value in `serverURL` enables StartTLS,
-including `false` (a warning is logged).
+AD answers WhoAmI with `u:DOMAIN\name`; only `name` is compared with the
+`sAMAccountName` of the found entry. In a forest with several domains, a
+UPN bind to `CHILD\alice` and a search that finds `ROOT\alice` pass the
+check. Compare the domain too, e.g. with the constructed `msDS-PrincipalName`
+attribute or the `crossRef` (`nETBIOSName`, `nCName`) of the domain; needs
+a real AD to verify.
 
 ### Before rolling out OIDC
 
@@ -119,6 +101,8 @@ limits or document a reverse proxy setup.
 
 ### Smaller items
 
+- authldap: any `startTLS` value in `serverURL` enables StartTLS, including
+  `false` (a warning is logged).
 - `util.CheckSocketPath` only inspects the socket's own directory and one
   symlink hop. Sockets owned by another user in a directory that user owns,
   or symlink chains through world-writable directories, are not detected.
@@ -180,4 +164,5 @@ the maintenance pass). Gaps, roughly by risk:
   parsing on the client.
 - `make test-ldap` covers OpenLDAP 2.4.57 and 389 DS with an ACL that lets
   authenticated users read the directory; Microsoft AD (recursive group
-  matching rule, UPN binds) is not covered.
+  matching rule, UPN binds, the `u:DOMAIN\name` WhoAmI answer checked by
+  `verifyBoundIdentity`) is not covered.
