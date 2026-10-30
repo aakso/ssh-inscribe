@@ -280,6 +280,17 @@ func (ao *AuthOIDC) fillAuthContext(actx *auth.AuthContext, claims map[string]in
 			}
 		}
 	}
+	// Principals come from the identity provider; drop the ones sshd could
+	// interpret as several principals.
+	filtered := actx.Principals[:0]
+	for _, p := range actx.Principals {
+		if auth.UnsafePrincipal(p) {
+			ao.log.WithField("principal", p).Warn("dropping unsafe principal")
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	actx.Principals = filtered
 	// From configuration
 	actx.Principals = append(actx.Principals, ao.config.Principals...)
 	actx.CriticalOptions = ao.config.CriticalOptions

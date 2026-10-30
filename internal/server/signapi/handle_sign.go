@@ -76,6 +76,12 @@ func (sa *SignApi) HandleSign(c echo.Context) error {
 		log.Warn("refusing to issue a certificate without principals")
 		return echo.NewHTTPError(http.StatusForbidden, "no principals available for the certificate")
 	}
+	for _, p := range actx.GetPrincipals() {
+		if auth.UnsafePrincipal(p) {
+			log.WithField("principal", p).
+				Warn("principal contains a comma or control character; sshd principals= options may match it as several principals")
+		}
+	}
 
 	validBefore := time.Now().Add(sa.defaultCertLife)
 

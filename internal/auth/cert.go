@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/crypto/ssh"
 )
@@ -46,4 +47,14 @@ func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validBefore time.Tim
 		}
 	}
 	return certs
+}
+
+// UnsafePrincipal reports whether p cannot be matched unambiguously by sshd.
+// The authorized_keys principals="" option splits certificate principals on
+// commas, so "a,b" matches both "a" and "b". Control characters are never
+// legitimate.
+func UnsafePrincipal(p string) bool {
+	return p == "" || strings.ContainsFunc(p, func(r rune) bool {
+		return r == ',' || unicode.IsControl(r)
+	})
 }

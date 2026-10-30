@@ -345,3 +345,14 @@ func TestStateConcurrencySafe(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestUnsafePrincipalsAreDropped(t *testing.T) {
+	ab := getAuthenticator()
+	actx, ok, err := runFlow(t, ab, func(nonce string) *testIDClaims {
+		return &testIDClaims{Name: "x", Groups: []string{"devs", "evil,admins", "bad\nline"}, Nonce: nonce}
+	})
+	assert.NoError(t, err)
+	if assert.True(t, ok) {
+		assert.Equal(t, []string{"devs"}, actx.Principals)
+	}
+}
