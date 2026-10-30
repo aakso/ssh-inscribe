@@ -4,6 +4,40 @@ Follow-ups from the 2026 security review and maintenance pass. Items marked
 **breaking** change behaviour for existing deployments and were deliberately
 left out of the maintenance branch.
 
+## Next release
+
+Small client fixes to include in the next release. Both were found by
+integration tests against OpenSSH 10.0 (Debian trixie) and affect 0.11.0 and
+0.12.0.
+
+### sshi ssh/exec: RSA keys fail through the filtering agent
+
+With an ssh-agent running, `sshi ssh` and `sshi exec` serve keys through
+`internal/filteringagent`. Its `Sign` ignores the signature algorithm ssh
+asks for and picks the flags from the certificate's CA signature format
+(`--signing-option`, default `rsa-sha2-256`). OpenSSH asks for
+`rsa-sha2-512` first, gets an `rsa-sha2-256` signature back and gives up:
+`sign_and_send_pubkey: no mutual signature supported`. RSA is the default
+`--keytype`, so the default setup with an RSA CA is affected.
+
+The user key's signature algorithm is unrelated to the CA's signature on the
+certificate. Implement `agent.ExtendedAgent` and pass the requested flags
+through (`SignWithFlags`); keep the current choice only for plain `Sign`
+calls. Works today: `-o rsa-sha2-512`, `--agent-filter=false`, ed25519 keys,
+or no ssh-agent (ad-hoc agent).
+
+### sshi req: generated ed25519 key files are not loadable by OpenSSH
+
+`sshi req -t ed25519 --generate --write` writes the private key as
+openssh-key-v1 without padding the private section to the cipher block size
+(8 for `none`); OpenSSH refuses it ("error in libcrypto"). The marshalling
+comes from `ScaleFT/sshkeys` (`FormatOpenSSHv1`). Use
+`ssh.MarshalPrivateKey` from `golang.org/x/crypto/ssh` for ed25519 keys
+instead (it writes openssh-key-v1 for every key type; keep PEM for RSA unless
+that change is wanted), here and for the CA key upload in `addCAKey`, and add
+a test that loads the written key with `ssh-keygen -y`. RSA keys are written
+as PEM and are not affected.
+
 ## Security
 
 ### Restrict CA key upload (breaking)
