@@ -22,6 +22,8 @@ import (
 	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
+const minTokenSigningKeyLen = 32
+
 type Server struct {
 	config *Config
 	web    *echo.Echo
@@ -40,10 +42,17 @@ func (s *Server) Start() error {
 		return errors.Wrap(err, "invalid certificate configuration")
 	}
 
+	for _, srv := range []*http.Server{s.web.Server, s.web.TLSServer} {
+		srv.ReadHeaderTimeout = 10 * time.Second
+		srv.ReadTimeout = 30 * time.Second
+		srv.WriteTimeout = 2 * time.Minute
+		srv.IdleTimeout = 2 * time.Minute
+	}
+
 	if len(cc.Certificates) > 0 {
 		// Configure TLSServer before starting
 		tlsServer := s.web.TLSServer
-		tlsServer.TLSConfig = new(tls.Config)
+		tlsServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 
 		if len(cc.Certificates) == 1 {
 			tlsServer.TLSConfig.Certificates = make([]tls.Certificate, 1)
@@ -143,6 +152,8 @@ func Build() (*Server, error) {
 	if conf.TokenSigningKey == "" {
 		Log.Info("generating random JWT token signing key as none is set")
 		conf.TokenSigningKey = util.RandB64(256)
+	} else if len(conf.TokenSigningKey) < minTokenSigningKeyLen {
+		Log.Warnf("tokenSigningKey is shorter than %d characters, consider a longer random value", minTokenSigningKeyLen)
 	}
 
 	// Signing API

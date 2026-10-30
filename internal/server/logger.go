@@ -3,6 +3,7 @@ package server
 import (
 	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -17,8 +18,8 @@ func RequestLogger(lf logrus.Fields) echo.MiddlewareFunc {
 			resp := c.Response()
 			start := time.Now()
 
-			ra := req.RemoteAddr
-			ra, port, _ := net.SplitHostPort(ra)
+			peer, port, _ := net.SplitHostPort(req.RemoteAddr)
+			ra := peer
 			if ip := req.Header.Get(echo.HeaderXRealIP); ip != "" {
 				ra = ip
 				port = ""
@@ -32,7 +33,8 @@ func RequestLogger(lf logrus.Fields) echo.MiddlewareFunc {
 				WithField("client_version", req.Header.Get("X-Version")).
 				WithField("remote_address", ra).
 				WithField("remote_port", port).
-				WithField("url", req.URL).
+				WithField("peer_address", peer).
+				WithField("url", redactURL(req.URL)).
 				WithField("method", req.Method)
 
 			err := next(c)
@@ -54,4 +56,24 @@ func RequestLogger(lf logrus.Fields) echo.MiddlewareFunc {
 			return nil
 		}
 	}
+}
+
+// Query parameters that carry credentials and must not end up in logs.
+var sensitiveQueryParams = []string{"code"}
+
+func redactURL(u *url.URL) string {
+	q := u.Query()
+	redacted := false
+	for _, k := range sensitiveQueryParams {
+		if q.Has(k) {
+			q.Set(k, "REDACTED")
+			redacted = true
+		}
+	}
+	if !redacted {
+		return u.String()
+	}
+	c := *u
+	c.RawQuery = q.Encode()
+	return c.String()
 }
