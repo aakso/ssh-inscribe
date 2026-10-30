@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/go-viper/mapstructure/v2"
@@ -42,11 +43,49 @@ func Get(section string) (any, error) {
 	decoder, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		WeaklyTypedInput: true,
 		Result:           def,
+		DecodeHook:       legacySliceOverlay,
 	})
 	if err := decoder.Decode(val); err != nil {
 		return nil, fmt.Errorf("error while parsing section: %s", section)
 	}
 	return def, nil
+}
+
+// legacySliceOverlay keeps the list semantics of github.com/mitchellh/mapstructure,
+// which existing configurations depend on: a configured list is decoded onto
+// the default list element by element, so a list shorter than the default
+// keeps the remaining default elements (and an empty list keeps the
+// default). github.com/go-viper/mapstructure/v2 truncates instead.
+//
+// For example the authldap default userSearchGetAttributes is [cn,
+// displayName]; a configured [sAMAccountName] has always meant
+// [sAMAccountName, displayName].
+func legacySliceOverlay(from, to reflect.Value) (any, error) {
+	data := from.Interface()
+	for to.Kind() == reflect.Pointer || to.Kind() == reflect.Interface {
+		if to.IsNil() {
+			return data, nil
+		}
+		to = to.Elem()
+	}
+	if to.Kind() != reflect.Slice || to.IsNil() {
+		return data, nil
+	}
+	if from.Kind() != reflect.Slice && from.Kind() != reflect.Array {
+		return data, nil
+	}
+	if from.Len() >= to.Len() {
+		return data, nil
+	}
+	merged := make([]any, to.Len())
+	for i := range merged {
+		if i < from.Len() {
+			merged[i] = from.Index(i).Interface()
+		} else {
+			merged[i] = to.Index(i).Interface()
+		}
+	}
+	return merged, nil
 }
 
 // Return submap with key "section1.section2"
