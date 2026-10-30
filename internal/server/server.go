@@ -32,55 +32,60 @@ type Server struct {
 	signapi *signapi.SignAPI
 }
 
+// Start serves the API until the server fails or is closed.
 func (s *Server) Start() error {
-	var err error
 	log := Log.WithField("server_version", globals.Version())
+	srv, err := s.configure()
+	if err != nil {
+		return err
+	}
+	if srv.TLSConfig != nil {
+		log.WithField("listen", "https://"+s.config.Listen).
+			WithField("certificates", strconv.Itoa(len(srv.TLSConfig.Certificates))).
+			Info("server starting")
+	} else {
+		log.WithField("listen", "http://"+s.config.Listen).Warn("server starting without TLS")
+	}
+	if err := s.web.StartServer(srv); err != nil {
+		return fmt.Errorf("cannot start server: %w", err)
+	}
+	return nil
+}
+
+// configure applies timeouts and the TLS configuration and returns the
+// server to start: the TLS server when certificates are configured.
+func (s *Server) configure() (*http.Server, error) {
 	s.web.Logger.SetOutput(io.Discard)
 
 	cc, err := s.config.GetCertificateMap()
 	if err != nil {
-		return fmt.Errorf("invalid certificate configuration: %w", err)
+		return nil, fmt.Errorf("invalid certificate configuration: %w", err)
 	}
 
 	for _, srv := range []*http.Server{s.web.Server, s.web.TLSServer} {
+		srv.Addr = s.config.Listen
 		srv.ReadHeaderTimeout = 10 * time.Second
 		srv.ReadTimeout = 30 * time.Second
 		srv.WriteTimeout = 2 * time.Minute
 		srv.IdleTimeout = 2 * time.Minute
 	}
 
-	if len(cc.Certificates) > 0 {
-		// Configure TLSServer before starting
-		tlsServer := s.web.TLSServer
-		tlsServer.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-
-		if len(cc.Certificates) == 1 {
-			tlsServer.TLSConfig.Certificates = make([]tls.Certificate, 1)
-			tlsServer.TLSConfig.Certificates[0] = cc.Certificates[0]
-		} else {
-			tlsServer.TLSConfig.NameToCertificate = cc.CertificateMap //nolint:staticcheck // user config
-			tlsServer.TLSConfig.Certificates = cc.Certificates
-		}
-
-		tlsServer.Addr = s.config.Listen
-		if !s.web.DisableHTTP2 {
-			tlsServer.TLSConfig.NextProtos = append(tlsServer.TLSConfig.NextProtos, "h2")
-		}
-		log.WithField("listen", "https://"+s.config.Listen).WithField(
-			"certificates", strconv.Itoa(len(cc.Certificates))).Info("server starting")
-
-		err = s.web.StartServer(tlsServer)
-		if err != nil {
-			return fmt.Errorf("cannot start server: %w", err)
-		}
-	} else {
-		log.WithField("listen", "http://"+s.config.Listen).Warn("server starting without TLS")
-		err = s.web.Start(s.config.Listen)
+	if len(cc.Certificates) == 0 {
+		return s.web.Server, nil
 	}
-	if err != nil {
-		return fmt.Errorf("cannot start server: %w", err)
+
+	tlsServer := s.web.TLSServer
+	tlsServer.TLSConfig = &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: cc.Certificates,
 	}
-	return nil
+	if len(cc.Certificates) > 1 {
+		tlsServer.TLSConfig.GetCertificate = cc.GetCertificate
+	}
+	if !s.web.DisableHTTP2 {
+		tlsServer.TLSConfig.NextProtos = append(tlsServer.TLSConfig.NextProtos, "h2")
+	}
+	return tlsServer, nil
 }
 
 func (s *Server) initAPI() {

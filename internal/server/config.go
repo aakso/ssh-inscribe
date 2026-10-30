@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"path"
+	"strings"
 
 	"github.com/aakso/ssh-inscribe/internal/globals"
 )
@@ -60,6 +61,25 @@ var Defaults = &Config{
 	PKCS11Pin:                 "",
 	CertSigningKeyFingerprint: "",
 	TokenSigningKey:           "",
+}
+
+// GetCertificate selects a certificate by the TLS server name, exactly or by
+// a wildcard for the first label, like the deprecated
+// tls.Config.NameToCertificate did. It returns nil when there is no match so
+// that crypto/tls falls back to its default selection.
+func (cc CertificateConfig) GetCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	name := strings.ToLower(hello.ServerName)
+	if cert, ok := cc.CertificateMap[name]; ok {
+		return cert, nil
+	}
+	if name != "" {
+		labels := strings.Split(name, ".")
+		labels[0] = "*"
+		if cert, ok := cc.CertificateMap[strings.Join(labels, ".")]; ok {
+			return cert, nil
+		}
+	}
+	return nil, nil
 }
 
 func (c Config) GetCertificateMap() (cc CertificateConfig, err error) {
