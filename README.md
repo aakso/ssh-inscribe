@@ -17,7 +17,9 @@ Feedback would be appreciated.
         - [Certificate request commands](#certificate-request-commands)
     - [Advanced topics](#advanced-topics)
         - [LDAP](#ldap)
+        - [OpenID Connect](#openid-connect)
         - [HSM](#hsm)
+    - [Development](#development)
 
 <!-- /TOC -->
 ## Overview
@@ -55,11 +57,17 @@ apt and dnf/yum package repositories are available at
 [Packagecloud](https://packagecloud.io/aakso/ssh-inscribe).
 
 ### Development version
+Requires Go 1.26.4 or newer.
 ```
 go install github.com/aakso/ssh-inscribe/...@latest
 ```
+Builds made this way keep the agent socket in the system temporary directory
+by default; set `agentSocket` to a private directory for anything but testing.
 
 ## Quick start (flat file authentication)
+The flat file backend is meant for testing and small setups. Use LDAP or
+OpenID Connect in production.
+
 ### Install and configure the server
 1. Install the software, single binary `ssh-inscribe`
 2. Generate default configuration file: `mkdir ~/.ssh_inscribe &&
@@ -68,7 +76,7 @@ go install github.com/aakso/ssh-inscribe/...@latest
 ```
 users:
 - name: testuser
-  # password hash. use "ssh-inscribe crypt" to generate
+  # password hash. use "ssh-inscribe crypt" to generate (reads stdin when it is not a terminal)
   password: $2a$10$75.sk/zr/Rg3SUVpkg2wy.6D6Y1PvBs73OUHJWVqoW5KsSeSxN0Be # test
   principals: 
   - testPrincipal
@@ -80,7 +88,9 @@ users:
     permit-X11-forwarding: ""
 ```
 4. Edit other options in `~/.ssh_inscribe/config.yaml` (you should set
-   `TLSCertFile` and `TLSKeyFile` at least)
+   `TLSCertFile` and `TLSKeyFile` at least). Set
+   `certSigningKeyFingerprint` to the SHA256 fingerprint of your CA key so
+   that no other key can be loaded as the signing key.
 5. Start the server `ssh-inscribe server`
 6. Use the client to add a CA signing key:
 ```
@@ -99,6 +109,12 @@ cert-authority,principals="testPrincipal" <your CA Public Key>
 It is also possible to configure global trust in your `sshd_config`.
 Refer to `sshd_options` man page and look for `TrustedUserCAKeys` and
 `AuthorizedPrincipalsFile` options.
+
+Always restrict which principals are accepted (`principals=` or
+`AuthorizedPrincipalsFile`). Note that OpenSSH (up to at least 10.2) splits
+certificate principals on commas when matching a `principals=` option, so
+avoid principal names containing commas; the server logs a warning when it
+issues one.
 
 ## Use the client
 Recommended way to use the client is to have `ssh-agent` running.
@@ -154,7 +170,7 @@ Here is an example configuration of a Directory Server Integration
 mycompanyldapconfig:
   name: my.company.example.com
   realm: My Company Ltd
-  serverUrl: ldaps://ad.my.company.example.com:636          # Using LDAP over SSL
+  serverUrl: ldaps://ad.my.company.example.com:636          # LDAP over TLS. For StartTLS use ldap://host:389/?startTLS=true
   timeout: 5                                                # Connect and search timeout
   insecure: false                                           # Disables certificate validation on LDAP bind
   userBindDN: '{{.UserName}}@my.company.example.com'        # Template for binding. This example is for Microsoft AD
@@ -183,6 +199,10 @@ server:
   maxCertLifetime: 24h
   defaultCertLifetime: 1h
 ```
+Values substituted into `userSearchFilter` and `groupSearchFilter`
+(`{{.UserName}}`, `{{.User.*}}`) are escaped for LDAP filters automatically.
+Empty passwords are always refused.
+
 Now here is an example session using the above configuration (ssh-agent is running):
 ```
 mylaptop:~ aakso$ export SSH_INSCRIBE_URL=https://localhost:8540
@@ -215,5 +235,44 @@ Last login: Thu Apr  6 05:35:15 2017 from somewhere.at.my.company.example.com
 ```
 
 
+### OpenID Connect
+The client opens the identity provider login page in a browser and polls the
+server until the login completes. Register `redirectURL` (pointing to
+`/v1/auth_callback/<name>` on the server) with the identity provider.
+```
+mycompanyoidc:
+  name: sso
+  realm: My Company SSO
+  providerURL: https://idp.example.com/            # OIDC issuer, used for discovery
+  clientID: ssh-inscribe
+  clientSecret: <secret>
+  redirectURL: https://ssh-ca.example.com:8540/v1/auth_callback/sso
+  scopes: [openid, email, profile, groups]
+  valueMappings:
+    subjectNameField: name
+    subjectNameTemplate: '{{.}}'
+    principalsField: groups                        # string or list claim
+    principalTemplate: 'sso-{{.}}'
+  # When the email claim is mapped, email_verified must be true
+  requireVerifiedEmail: true
+  principals: []
+  criticalOptions: {}
+  extensions:
+    permit-pty: ""
+server:
+  authBackends:
+  - type: authoidc
+    config: mycompanyoidc
+```
+The flow uses PKCE and a nonce. Principals from the identity provider that
+contain commas or control characters are dropped. See `TODO.md` for open
+items to address before relying on OIDC in production.
+
 ### HSM
 TODO
+
+## Development
+`make check` runs formatting checks, vet, lint (also for Windows), tests and
+govulncheck, the same as CI. Tests need `ssh-agent` in `PATH`. See
+[AGENTS.md](AGENTS.md) for architecture notes, security invariants and
+conventions, and [TODO.md](TODO.md) for open work.
