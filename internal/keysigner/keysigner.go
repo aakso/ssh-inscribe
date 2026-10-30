@@ -385,7 +385,7 @@ func (ks *KeySignerService) callAgent(req []byte) (reply interface{}, err error)
 	}
 	respSize := binary.BigEndian.Uint32(respSizeBuf[:])
 	if respSize > maxAgentResponseBytes {
-		return nil, errors.Wrap(err, "agent error")
+		return nil, errors.New("agent error: response too large")
 	}
 
 	buf := make([]byte, respSize)
@@ -431,6 +431,12 @@ func (ks *KeySignerService) startAgent() {
 }
 
 func (ks *KeySignerService) reconnect() bool {
+	if err := util.CheckSocketPath(ks.authSocketLoc); err != nil {
+		if !os.IsNotExist(err) {
+			ks.log.WithError(err).Error("refusing to connect to ssh-agent")
+		}
+		return false
+	}
 	conn, err := net.Dial("unix", ks.authSocketLoc)
 	if err != nil {
 		ks.log.WithError(err).Error("cannot connect to ssh-agent")

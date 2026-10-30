@@ -53,3 +53,9 @@ func LocalListen(name string) (net.Listener, error) {
 	}
 	return ln, nil
 }
+
+// CheckSocketPath is a no-op on Windows, named pipes are created with an
+// explicit security descriptor.
+func CheckSocketPath(name string) error {
+	return nil
+}
