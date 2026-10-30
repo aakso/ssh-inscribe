@@ -18,15 +18,15 @@ func (sa *SignApi) RegisterRoutes(g *echo.Group) {
 	g.POST("/auth/:name",
 		sa.HandleLogin,
 		userPasswordForward(sa.LoginUserPasswordAuthSkipper),
-		jwtAuth(sa.tkey, &SignClaim{}, true),
+		jwtAuth(sa.tkey, true),
 		auditID(),
 	)
 	g.GET("/auth_callback/:name", sa.HandleAuthCallback)
 	g.POST("/auth_callback/:name", sa.HandleAuthCallback)
-	g.POST("/sign", sa.HandleSign, jwtAuth(sa.tkey, &SignClaim{}, false), auditID())
+	g.POST("/sign", sa.HandleSign, jwtAuth(sa.tkey, false), auditID())
 	g.GET("/ca", sa.HandleGetKey)
-	g.POST("/ca", sa.HandleAddKey, jwtAuth(sa.tkey, &SignClaim{}, false), auditID())
-	g.POST("/ca/response", sa.HandleCaChallenge, jwtAuth(sa.tkey, &SignClaim{}, false),
+	g.POST("/ca", sa.HandleAddKey, jwtAuth(sa.tkey, false), auditID())
+	g.POST("/ca/response", sa.HandleCaChallenge, jwtAuth(sa.tkey, false),
 		userPasswordForward(nil), auditID())
 	g.GET("/ready", sa.HandleReady)
 }
@@ -42,7 +42,7 @@ func userPasswordForward(skipper middleware.Skipper) echo.MiddlewareFunc {
 	})
 }
 
-func jwtAuth(key []byte, claims jwt.Claims, skipIfMissing bool) echo.MiddlewareFunc {
+func jwtAuth(key []byte, skipIfMissing bool) echo.MiddlewareFunc {
 	const authHeader = "X-Auth"
 	config := echojwt.Config{
 		SigningKey:  key,
@@ -57,8 +57,12 @@ func jwtAuth(key []byte, claims jwt.Claims, skipIfMissing bool) echo.MiddlewareF
 			}
 
 			auth = strings.TrimPrefix(auth, "Bearer ")
-			// claims are of type `jwt.MapClaims` when token is created with `jwt.Parse`
-			token, err := jwt.ParseWithClaims(auth, claims, keyFunc)
+			// Decode into a fresh claims object on every request. Sharing one
+			// would merge maps from earlier tokens into later ones.
+			token, err := jwt.ParseWithClaims(auth, &SignClaim{}, keyFunc,
+				jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+				jwt.WithExpirationRequired(),
+			)
 			if err != nil {
 				return nil, err
 			}

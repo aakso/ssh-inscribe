@@ -2,6 +2,7 @@ package signapi
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -524,4 +525,45 @@ func TestSigning(t *testing.T) {
 			}
 		})
 	})
+}
+
+// Each request must get its own claims object. A shared one leaks maps
+// (extensions, critical options) from earlier tokens into later ones and
+// races between concurrent requests.
+func TestJWTClaimsAreNotSharedBetweenRequests(t *testing.T) {
+	key := []byte("testkey")
+	sa := &SignApi{tkey: key}
+	e := echo.New()
+	e.POST("/claims", func(c echo.Context) error {
+		token, _ := c.Get("user").(*jwt.Token)
+		claims, _ := token.Claims.(*SignClaim)
+		return c.JSON(http.StatusOK, claims.AuthContext.GetExtensions())
+	}, jwtAuth(key, false))
+
+	call := func(actx *auth.AuthContext) map[string]string {
+		ss, err := sa.makeToken(actx).SignedString(key)
+		if !assert.NoError(t, err) {
+			return nil
+		}
+		req := httptest.NewRequest(http.MethodPost, "/claims", nil)
+		req.Header.Set("X-Auth", "Bearer "+ss)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		var ext map[string]string
+		assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ext))
+		return ext
+	}
+
+	privileged := call(&auth.AuthContext{
+		Status:     auth.StatusCompleted,
+		Extensions: map[string]string{"permit-port-forwarding": ""},
+	})
+	assert.Contains(t, privileged, "permit-port-forwarding")
+
+	unprivileged := call(&auth.AuthContext{
+		Status:     auth.StatusCompleted,
+		Extensions: map[string]string{"permit-pty": ""},
+	})
+	assert.Equal(t, map[string]string{"permit-pty": ""}, unprivileged)
 }
