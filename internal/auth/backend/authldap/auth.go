@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"text/template"
 	"time"
 
@@ -262,8 +263,13 @@ func New(conf *Config) (*AuthLDAP, error) {
 	connectMode := ConnectModePlain
 	switch url.Scheme {
 	case "ldap":
-		if url.Query().Get("startTLS") != "" {
+		if v := url.Query().Get("startTLS"); v != "" {
+			// Any value enables StartTLS. Honouring false would silently
+			// turn existing encrypted connections into plain text.
 			connectMode = ConnectModeStartTLS
+			if enabled, err := strconv.ParseBool(v); err == nil && !enabled {
+				Log.WithField("name", conf.Name).Warnf("serverURL has startTLS=%s, which enables StartTLS; remove the parameter to connect without TLS", v)
+			}
 		}
 	case "ldaps":
 		connectMode = ConnectModeLDAPS

@@ -89,6 +89,13 @@ func TestNewValidatesServerURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ConnectModeStartTLS, al.connectMode)
 
+	// Any value enables StartTLS, including "false" (historical behaviour;
+	// a warning is logged)
+	conf.ServerURL = "ldap://ldap.example.com:389/?startTLS=false"
+	al, err = New(&conf)
+	require.NoError(t, err)
+	assert.Equal(t, ConnectModeStartTLS, al.connectMode)
+
 	conf.ServerURL = "ldap://ldap.example.com:389"
 	al, err = New(&conf)
 	require.NoError(t, err)

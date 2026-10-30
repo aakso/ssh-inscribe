@@ -170,7 +170,7 @@ Here is an example configuration of a Directory Server Integration
 mycompanyldapconfig:
   name: my.company.example.com
   realm: My Company Ltd
-  serverUrl: ldaps://ad.my.company.example.com:636          # LDAP over TLS. For StartTLS use ldap://host:389/?startTLS=true
+  serverUrl: ldaps://ad.my.company.example.com:636          # LDAP over TLS. For StartTLS use ldap://host:389/?startTLS=true (any value enables it)
   timeout: 5                                                # Connect and search timeout
   insecure: false                                           # Disables certificate validation on LDAP bind
   userBindDN: '{{.UserName}}@my.company.example.com'        # Template for binding. This example is for Microsoft AD
