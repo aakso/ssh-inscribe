@@ -42,6 +42,10 @@ func TestMergeSemantics(t *testing.T) {
 		{"shorter list overlays the default", `attrs: [sAMAccountName]`, func(c *mergeConf) {
 			c.Attrs = []string{"sAMAccountName", "displayName"}
 		}},
+		{"single value overlays the default", `attrs: sAMAccountName`, func(c *mergeConf) {
+			c.Attrs = []string{"sAMAccountName", "displayName"}
+		}},
+		{"empty map is an empty list", `attrs: {}`, func(c *mergeConf) { c.Attrs = []string{} }},
 		{"equal length replaces", `attrs: [uid, mail]`, func(c *mergeConf) { c.Attrs = []string{"uid", "mail"} }},
 		{"longer list replaces", `attrs: [a, b, c]`, func(c *mergeConf) { c.Attrs = []string{"a", "b", "c"} }},
 		{"empty list keeps the default", `attrs: []`, func(*mergeConf) {}},
