@@ -36,11 +36,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Build
-        run: make dist
+        # The Makefile defaults to --snapshot
+        run: make dist GORELEASER_ARGS=
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Generate artifact attestations
-        uses: actions/attest@v4
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: dist/checksums.txt
         id: attest
