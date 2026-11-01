@@ -103,8 +103,8 @@ func (a *filteringAgent) checkListed(key ssh.PublicKey) error {
 	return ErrNoSuchKey
 }
 
-// Sign is used by clients that do not request a signature algorithm. For RSA
-// keys it picks one that matches the CA signature format.
+// Sign is only called directly; agent.ServeAgent uses SignWithFlags. For RSA
+// keys it picks a signature algorithm that matches the CA signature format.
 func (a *filteringAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) {
 	if err := a.checkListed(key); err != nil {
 		return nil, err
