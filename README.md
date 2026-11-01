@@ -61,8 +61,10 @@ Requires Go 1.26.4 or newer.
 ```
 go install github.com/aakso/ssh-inscribe/...@latest
 ```
-Builds made this way keep the agent socket in the system temporary directory
-by default; set `agentSocket` to a private directory for anything but testing.
+Builds made this way keep the agent socket in a private per-user directory
+in the system temporary directory (`$TMPDIR/ssh-inscribe-<uid>/agent.sock`),
+created at startup. Packages use `/var/lib/ssh-inscribe`. Use the packages
+or set `agentSocket` for anything but testing.
 
 ## Quick start (flat file authentication)
 The flat file backend is meant for testing and small setups. Use LDAP or

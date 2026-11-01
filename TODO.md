@@ -119,10 +119,6 @@ limits or document a reverse proxy setup.
 
 ### Smaller items
 
-- The default agent socket of non-packaged builds is
-  `$TMPDIR/ssh_inscribe_agent.sock`. Sockets planted by other users are now
-  refused; moving the default to a private runtime directory would be cleaner
-  (changes the default path).
 - Certificates are valid from "now". Back-dating `ValidAfter` by a minute
   would tolerate host clock skew (behaviour change).
 - The client prints server-provided strings (errors, key ids, principals) to

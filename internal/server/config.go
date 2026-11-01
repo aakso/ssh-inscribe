@@ -3,10 +3,14 @@ package server
 import (
 	"crypto/tls"
 	"errors"
+	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	"github.com/aakso/ssh-inscribe/internal/globals"
+	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
 type CertificateConfig struct {
@@ -56,11 +60,34 @@ var Defaults = &Config{
 	MaxCertLifetime:           "24h",
 	DefaultCertLifetime:       "1h",
 	CaChallengeLifetime:       "5m",
-	AgentSocket:               path.Join(globals.VarDir(), "ssh_inscribe_agent.sock"),
+	AgentSocket:               defaultAgentSocket(),
 	PKCS11Provider:            "",
 	PKCS11Pin:                 "",
 	CertSigningKeyFingerprint: "",
 	TokenSigningKey:           "",
+}
+
+// defaultAgentSocket keeps the socket of packaged builds in their state
+// directory. Other builds use a private per-user directory in the temporary
+// directory, created at startup (ensureAgentSocketDir).
+func defaultAgentSocket() string {
+	if globals.HasVarDir() {
+		return path.Join(globals.VarDir(), "ssh_inscribe_agent.sock")
+	}
+	return filepath.Join(privateAgentSocketDir(), "agent.sock")
+}
+
+func privateAgentSocketDir() string {
+	return filepath.Join(os.TempDir(), fmt.Sprintf("ssh-inscribe-%d", os.Getuid()))
+}
+
+// ensureAgentSocketDir creates the private directory of the default agent
+// socket. Other directories are left to the administrator.
+func ensureAgentSocketDir(socket string) error {
+	if globals.HasVarDir() || filepath.Dir(socket) != privateAgentSocketDir() {
+		return nil
+	}
+	return util.EnsurePrivateDir(filepath.Dir(socket))
 }
 
 // GetCertificate selects a certificate by the TLS server name, exactly or by

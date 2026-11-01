@@ -139,3 +139,26 @@ func checkEntry(name string, fi, parent os.FileInfo) error {
 	}
 	return fmt.Errorf("refusing to use %s: owned by uid %d in a world-writable directory", name, st.Uid)
 }
+
+// EnsurePrivateDir creates dir accessible only by the current user, or checks
+// that an existing dir is such a directory (not a symlink).
+func EnsurePrivateDir(dir string) error {
+	if err := os.Mkdir(dir, 0o700); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("cannot create %s: %w", dir, err)
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("refusing to use %s: not a directory", dir)
+	}
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok || int(st.Uid) != os.Getuid() {
+		return fmt.Errorf("refusing to use %s: not owned by the current user", dir)
+	}
+	if fi.Mode().Perm()&0o077 != 0 {
+		return fmt.Errorf("refusing to use %s: accessible by other users (mode %04o)", dir, fi.Mode().Perm())
+	}
+	return nil
+}
