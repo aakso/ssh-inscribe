@@ -338,6 +338,30 @@ func TestDebugOutputIsRedacted(t *testing.T) {
 	assert.NotContains(t, log, base64.StdEncoding.EncodeToString([]byte(testUser+":"+testPassword)))
 }
 
+func TestDebugOutputIsEscaped(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// net/http refuses control characters in headers, but not 8-bit CSI
+		w.Header().Set("X-Evil", "a\x9b2J")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("line1\nbad\x1b[2J"))
+	}))
+	t.Cleanup(srv.Close)
+	var out bytes.Buffer
+	c := &Client{Config: &Config{URL: srv.URL, Insecure: true, Timeout: 5 * time.Second, Debug: true}}
+	require.NoError(t, c.initREST())
+	c.rest.SetLogger(bufLogger{&out})
+	res, err := c.newReq().Get(c.urlFor("ca"))
+	require.NoError(t, err)
+
+	log := out.String()
+	require.Contains(t, log, "line1\nbad", "newlines are kept")
+	assert.NotContains(t, log, "\x1b")
+	assert.Contains(t, log, `bad\x1b[2J`)
+	assert.NotContains(t, log, "\x9b")
+	assert.Contains(t, log, `a\x9b2J`)
+	assert.Equal(t, "a\x9b2J", res.Header().Get("X-Evil"), "the response itself is not modified")
+}
+
 type bufLogger struct{ b *bytes.Buffer }
 
 func (l bufLogger) Errorf(f string, v ...any) { fmt.Fprintf(l.b, f, v...) }

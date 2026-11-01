@@ -1206,11 +1206,28 @@ func redactRequestLog(rl *resty.RequestLog) error {
 	return nil
 }
 
-// Login responses carry the session token in the body.
+// Login responses carry the session token in the body. Headers and bodies
+// come from the server and are escaped like other output (keeping newlines).
 func redactResponseLog(rl *resty.ResponseLog) error {
 	if strings.HasPrefix(rl.Header.Get("Content-Type"), "application/jwt") {
 		rl.Body = redacted
+	} else {
+		lines := strings.Split(rl.Body, "\n")
+		for i, l := range lines {
+			lines[i] = util.TerminalSafe(l)
+		}
+		rl.Body = strings.Join(lines, "\n")
 	}
+	// The value slices are shared with the response, do not modify them
+	safe := make(http.Header, len(rl.Header))
+	for k, vs := range rl.Header {
+		safeVs := make([]string, len(vs))
+		for i, v := range vs {
+			safeVs[i] = util.TerminalSafe(v)
+		}
+		safe[util.TerminalSafe(k)] = safeVs
+	}
+	rl.Header = safe
 	return nil
 }
 
