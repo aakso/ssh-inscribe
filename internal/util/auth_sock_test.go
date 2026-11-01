@@ -78,6 +78,11 @@ func TestCheckEntry(t *testing.T) {
 	assert.NoError(t, checkEntry("s", fakeFileInfo{uid: 0}, sharedFi))
 	assert.NoError(t, checkEntry("s", fakeFileInfo{uid: self}, sharedFi))
 
+	sharedOther := fakeFileInfo{FileInfo: sharedFi, uid: self + 4242}
+	assert.ErrorContains(t, checkEntry("s", fakeFileInfo{uid: self}, sharedOther), "world-writable directory",
+		"the owner of a sticky directory can remove any entry")
+	assert.NoError(t, checkEntry("s", fakeFileInfo{uid: self}, fakeFileInfo{FileInfo: sharedFi, uid: 0}))
+
 	nonSticky, err := os.Stat(sharedDir(t, 0o777))
 	require.NoError(t, err)
 	assert.Error(t, checkEntry("s", fakeFileInfo{uid: self}, nonSticky), "anyone can replace the entry")
@@ -115,6 +120,17 @@ func TestCheckSocketPathSymlinkChains(t *testing.T) {
 	openSock := filepath.Join(open, "agent.sock")
 	listenUnix(t, openSock)
 	assert.Error(t, CheckSocketPath(openSock))
+
+	// ".." after a symlink is relative to the link target, as in the kernel
+	require.NoError(t, os.Mkdir(filepath.Join(open, "sub"), 0o700))
+	toOpenSub := filepath.Join(private, "to-open-sub")
+	require.NoError(t, os.Symlink(filepath.Join(open, "sub"), toOpenSub))
+	assert.ErrorContains(t, CheckSocketPath(toOpenSub+"/../agent.sock"), "without the sticky bit", "resolves to the open directory")
+
+	// Relative names start from the working directory
+	t.Chdir(private)
+	assert.NoError(t, CheckSocketPath("agent.sock"))
+	assert.NoError(t, CheckSocketPath("sub/../agent.sock"))
 
 	loop := filepath.Join(private, "loop")
 	require.NoError(t, os.Symlink(loop, loop))
