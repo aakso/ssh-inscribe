@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -273,14 +274,7 @@ func (c *Client) addCAKey() error {
 	if err != nil {
 		return fmt.Errorf("could not parse ca key: %w", err)
 	}
-	opts := &sshkeys.MarshalOptions{}
-	switch key.(type) {
-	case *ed25519.PrivateKey:
-		opts.Format = sshkeys.FormatOpenSSHv1
-	default:
-		opts.Format = sshkeys.FormatClassicPEM
-	}
-	content, err = sshkeys.Marshal(key, opts)
+	content, err = marshalPrivateKey(key)
 	if err != nil {
 		return fmt.Errorf("could not marshal ca key: %w", err)
 	}
@@ -297,6 +291,21 @@ func (c *Client) addCAKey() error {
 	}
 	log.Debug("sent ca key to the server")
 	return nil
+}
+
+// marshalPrivateKey encodes ed25519 keys as openssh-key-v1, the only format
+// OpenSSH supports for them, and other keys as PEM.
+func marshalPrivateKey(key any) ([]byte, error) {
+	switch key.(type) {
+	case ed25519.PrivateKey, *ed25519.PrivateKey:
+		block, err := ssh.MarshalPrivateKey(key, "")
+		if err != nil {
+			return nil, err
+		}
+		return pem.EncodeToMemory(block), nil
+	default:
+		return sshkeys.Marshal(key, &sshkeys.MarshalOptions{Format: sshkeys.FormatClassicPEM})
+	}
 }
 
 func (c *Client) caChallenge() error {
@@ -512,14 +521,7 @@ func (c *Client) storeInFile() error {
 			return fmt.Errorf("could not set private key file permissions: %w", err)
 		}
 		defer closeFile(fhPriv)
-		opts := &sshkeys.MarshalOptions{}
-		switch c.userPrivateKey.(type) {
-		case *ed25519.PrivateKey:
-			opts.Format = sshkeys.FormatOpenSSHv1
-		default:
-			opts.Format = sshkeys.FormatClassicPEM
-		}
-		content, err := sshkeys.Marshal(c.userPrivateKey, opts)
+		content, err := marshalPrivateKey(c.userPrivateKey)
 		if err != nil {
 			return fmt.Errorf("could not marshal private key: %w", err)
 		}

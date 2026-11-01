@@ -26,6 +26,8 @@ func New(targetAgent agent.Agent, ca ssh.PublicKey, signatureFormat string, keyT
 	}
 }
 
+var _ agent.ExtendedAgent = (*filteringAgent)(nil)
+
 type filteringAgent struct {
 	ca              ssh.PublicKey
 	signatureFormat string
@@ -88,19 +90,24 @@ func (a *filteringAgent) List() ([]*agent.Key, error) {
 	return out, nil
 }
 
-func (a *filteringAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) {
+func (a *filteringAgent) checkListed(key ssh.PublicKey) error {
 	keys, err := a.List()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	var found bool
 	for _, rawKey := range keys {
 		if bytes.Equal(key.Marshal(), rawKey.Marshal()) {
-			found = true
+			return nil
 		}
 	}
-	if !found {
-		return nil, ErrNoSuchKey
+	return ErrNoSuchKey
+}
+
+// Sign is only called directly; agent.ServeAgent uses SignWithFlags. For RSA
+// keys it picks a signature algorithm that matches the CA signature format.
+func (a *filteringAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, error) {
+	if err := a.checkListed(key); err != nil {
+		return nil, err
 	}
 	signCall := a.agent.Sign
 	extendedAgent, isExtendedAgent := a.agent.(agent.ExtendedAgent)
@@ -120,6 +127,27 @@ func (a *filteringAgent) Sign(key ssh.PublicKey, data []byte) (*ssh.Signature, e
 		}
 	}
 	return signCall(key, data)
+}
+
+// SignWithFlags passes the signature algorithm requested by the client
+// through. It is unrelated to the algorithm the CA used to sign the
+// certificate: OpenSSH asks for rsa-sha2-512 and rejects anything else.
+func (a *filteringAgent) SignWithFlags(key ssh.PublicKey, data []byte, flags agent.SignatureFlags) (*ssh.Signature, error) {
+	if err := a.checkListed(key); err != nil {
+		return nil, err
+	}
+	if extendedAgent, ok := a.agent.(agent.ExtendedAgent); ok {
+		return extendedAgent.SignWithFlags(key, data, flags)
+	}
+	if flags != 0 {
+		return nil, ErrNotSupported
+	}
+	return a.agent.Sign(key, data)
+}
+
+// Extension requests (e.g. session-bind@openssh.com) are not forwarded.
+func (a *filteringAgent) Extension(_ string, _ []byte) ([]byte, error) {
+	return nil, agent.ErrExtensionUnsupported
 }
 
 func (a *filteringAgent) Add(key agent.AddedKey) error {

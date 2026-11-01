@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -220,6 +222,10 @@ func TestLoginWritesFilesAndReusesValidCertificate(t *testing.T) {
 		_, err := os.Stat(f)
 		assert.NoError(t, err, f)
 	}
+	signer, err := ssh.NewSignerFromKey(c.userPrivateKey)
+	require.NoError(t, err)
+	assert.Equal(t, strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))),
+		opensshPublicKey(t, identity), "OpenSSH loads the written key")
 
 	// Without --generate the existing key and its valid certificate are used
 	// without logging in again.
@@ -514,4 +520,45 @@ func TestAskPass(t *testing.T) {
 
 	t.Setenv("SSH_ASKPASS", filepath.Join(dir, "missing"))
 	assert.Nil(t, askPass("prompt"))
+}
+
+// opensshPublicKey derives the public key from a private key file with
+// ssh-keygen, i.e. checks that OpenSSH can load the file.
+func opensshPublicKey(t *testing.T, file string) string {
+	t.Helper()
+	keygen, err := exec.LookPath("ssh-keygen")
+	if err != nil {
+		t.Skip("ssh-keygen not found")
+	}
+	out, err := exec.CommandContext(t.Context(), keygen, "-y", "-f", file).CombinedOutput() //nolint:gosec // ssh-keygen from PATH with a test file
+	require.NoError(t, err, string(out))
+	return strings.TrimSpace(string(out))
+}
+
+func TestMarshalPrivateKeyLoadableByOpenSSH(t *testing.T) {
+	_, edKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	for name, key := range map[string]any{
+		"ed25519":         edKey,
+		"ed25519 pointer": &edKey,
+		"rsa":             rsaKey,
+	} {
+		t.Run(name, func(t *testing.T) {
+			content, err := marshalPrivateKey(key)
+			require.NoError(t, err)
+			file := filepath.Join(t.TempDir(), "id")
+			require.NoError(t, os.WriteFile(file, content, 0o600))
+
+			signer, err := ssh.NewSignerFromKey(key)
+			require.NoError(t, err)
+			want := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey())))
+			assert.Equal(t, want, opensshPublicKey(t, file))
+
+			// The server parses uploaded CA keys with x/crypto
+			_, err = ssh.ParseRawPrivateKey(content)
+			assert.NoError(t, err)
+		})
+	}
 }

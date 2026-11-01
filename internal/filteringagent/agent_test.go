@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/rsa"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -389,4 +390,41 @@ func Test_filteringAgent_Concurrent(t *testing.T) {
 	remaining, err := fa.List()
 	require.NoError(t, err)
 	assert.Empty(t, remaining)
+}
+
+// The signature algorithm the client asks for must be used, whatever the CA
+// used to sign the certificate. OpenSSH asks for rsa-sha2-512 and rejects
+// other signatures.
+func Test_filteringAgent_SignWithFlags(t *testing.T) {
+	ta := agent.NewKeyring()
+	deps := testDeps(t)
+	deps.addCertsToAgent(t, ta, false)
+	ca1, err := ssh.NewSignerFromKey(deps.ca1)
+	require.NoError(t, err)
+
+	// Served like sshi serves it, the client sends the flags on the wire
+	fa := New(ta, ca1.PublicKey(), ssh.KeyAlgoRSA, ssh.KeyAlgoRSA)
+	c1, c2 := net.Pipe()
+	t.Cleanup(func() { _ = c1.Close(); _ = c2.Close() })
+	go func() { _ = agent.ServeAgent(fa, c2) }()
+	client := agent.NewClient(c1)
+
+	cert := deps.ca1Cert3RsaLegacySigningAlgo
+	data := []byte("data")
+	for flags, format := range map[agent.SignatureFlags]string{
+		agent.SignatureFlagRsaSha256: ssh.KeyAlgoRSASHA256,
+		agent.SignatureFlagRsaSha512: ssh.KeyAlgoRSASHA512,
+		0:                            ssh.KeyAlgoRSA,
+	} {
+		sig, err := client.SignWithFlags(cert, data, flags)
+		require.NoError(t, err, format)
+		assert.Equal(t, format, sig.Format)
+		assert.NoError(t, cert.Key.Verify(data, sig), format)
+	}
+
+	_, err = client.SignWithFlags(deps.ca2CertRsa, data, agent.SignatureFlagRsaSha512)
+	assert.Error(t, err, "filtered keys cannot be used")
+
+	_, err = client.Extension("session-bind@openssh.com", nil)
+	assert.ErrorIs(t, err, agent.ErrExtensionUnsupported)
 }
