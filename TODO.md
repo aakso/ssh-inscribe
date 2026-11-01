@@ -117,11 +117,6 @@ directory account lockouts as a side effect) and flooding pending OIDC logins
 (`maxPendingAuthAttempts`) are only bounded by the network. Add per-client
 limits or document a reverse proxy setup.
 
-### Smaller items
-
-- Release workflow: snapshot builds for pull requests run with
-  `contents: write`; split them into a read-only job.
-
 ## Packaging (breaking for custom paths)
 
 - Offer stricter systemd sandboxing as a documented drop-in:

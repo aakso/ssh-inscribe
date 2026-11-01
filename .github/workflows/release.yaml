@@ -7,30 +7,44 @@ on:
     tags: ["*.*.*"]
 
 permissions:
-  attestations: write
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
-  release:
+  # Pull requests and master: build packages without publishing anything,
+  # with a read-only token.
+  snapshot:
+    if: "!startsWith(github.ref, 'refs/tags/')"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
       - name: Build
-        run: |
-          make dist GORELEASER_ARGS="${{ !startsWith(github.ref, 'refs/tags/') && '--snapshot' || '' }}"
+        run: make dist GORELEASER_ARGS=--snapshot
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build
+        run: make dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Generate artifact attestations
-        if: startsWith(github.ref, 'refs/tags/')
         uses: actions/attest@v4
         with:
           subject-checksums: dist/checksums.txt
         id: attest
       - name: Upload Sigstore bundle
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           cp "${ATTEST_BUNDLE_PATH}" artifact-attestation.sigstore.json
           gh release upload "$(jq -r .tag <dist/metadata.json)" artifact-attestation.sigstore.json
@@ -38,7 +52,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ATTEST_BUNDLE_PATH: ${{ steps.attest.outputs.bundle-path }}
       - name: Upload to Packagecloud
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           gem install --no-document --user-install --bindir ~/.local/bin package_cloud
           export CLICOLOR_FORCE=1
