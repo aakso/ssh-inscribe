@@ -84,7 +84,9 @@ func (sa *SignAPI) HandleSign(c echo.Context) error {
 		}
 	}
 
-	validBefore := time.Now().Add(sa.defaultCertLife)
+	now := time.Now()
+	validAfter := now.Add(-sa.certBackdate)
+	validBefore := now.Add(sa.defaultCertLife)
 
 	// Validity
 	if exp := c.QueryParam("expires"); exp != "" {
@@ -115,7 +117,7 @@ func (sa *SignAPI) HandleSign(c echo.Context) error {
 	// No certificate holds more principals than this anyway; the limit keeps
 	// the conversion to int safe on 32-bit platforms.
 	maxPrincipalsPerCertificate = min(maxPrincipalsPerCertificate, math.MaxInt32)
-	certs := auth.MakeCertificates(pubKey, actx, validBefore, int(maxPrincipalsPerCertificate))
+	certs := auth.MakeCertificates(pubKey, actx, validAfter, validBefore, int(maxPrincipalsPerCertificate))
 
 	// Signing option
 	var algo string

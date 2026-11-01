@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/aakso/ssh-inscribe/internal/ui"
+	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
 var ReqCmd = &cobra.Command{
@@ -28,7 +29,7 @@ var ReqCmd = &cobra.Command{
 				return err
 			}
 			for _, v := range discoverResult {
-				fmt.Printf("%s (%s)\n", v.AuthenticatorName, v.AuthenticatorRealm)
+				fmt.Printf("%s (%s)\n", util.TerminalSafe(v.AuthenticatorName), util.TerminalSafe(v.AuthenticatorRealm))
 			}
 			return nil
 		}

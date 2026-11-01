@@ -416,6 +416,31 @@ func TestSigning(t *testing.T) {
 			}
 		})
 
+		t.Run("TestSignBackdate", func(t *testing.T) {
+			sign := func() *ssh.Certificate {
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/sign", bytes.NewBuffer(testUserPublic))
+				req.Header.Set("X-Auth", "Bearer "+ss)
+				rec := httptest.NewRecorder()
+				e.ServeHTTP(rec, req)
+				require.Equal(t, http.StatusOK, rec.Code)
+				raw, _, _, _, err := ssh.ParseAuthorizedKey(rec.Body.Bytes())
+				require.NoError(t, err)
+				cert, _ := raw.(*ssh.Certificate)
+				require.NotNil(t, cert)
+				return cert
+			}
+			now := time.Now()
+			cert := sign()
+			assert.InDelta(t, util.CertTimestamp(now), cert.ValidAfter, 2, "no back-dating by default")
+
+			signapi.SetCertBackdate(time.Minute)
+			t.Cleanup(func() { signapi.SetCertBackdate(0) })
+			now = time.Now()
+			cert = sign()
+			assert.InDelta(t, util.CertTimestamp(now.Add(-time.Minute)), cert.ValidAfter, 2)
+			assert.InDelta(t, util.CertTimestamp(now.Add(time.Hour)), cert.ValidBefore, 2, "the expiry does not move")
+		})
+
 		t.Run("TestSignPendingAuthContext", func(t *testing.T) {
 			pendingActx := &auth.AuthContext{
 				Parent: &auth.AuthContext{

@@ -117,23 +117,6 @@ directory account lockouts as a side effect) and flooding pending OIDC logins
 (`maxPendingAuthAttempts`) are only bounded by the network. Add per-client
 limits or document a reverse proxy setup.
 
-### Smaller items
-
-- `util.CheckSocketPath` only inspects the socket's own directory and one
-  symlink hop. Sockets owned by another user in a directory that user owns,
-  or symlink chains through world-writable directories, are not detected.
-
-- The default agent socket of non-packaged builds is
-  `$TMPDIR/ssh_inscribe_agent.sock`. Sockets planted by other users are now
-  refused; moving the default to a private runtime directory would be cleaner
-  (changes the default path).
-- Certificates are valid from "now". Back-dating `ValidAfter` by a minute
-  would tolerate host clock skew (behaviour change).
-- The client prints server-provided strings (errors, key ids, principals) to
-  the terminal without filtering control characters.
-- Release workflow: snapshot builds for pull requests run with
-  `contents: write`; split them into a read-only job.
-
 ## Packaging (breaking for custom paths)
 
 - Offer stricter systemd sandboxing as a documented drop-in:

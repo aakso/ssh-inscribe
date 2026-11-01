@@ -30,6 +30,7 @@ type SignAPI struct {
 	defaultCertLife time.Duration
 	maxCertLife     time.Duration
 	caChallengeLife time.Duration
+	certBackdate    time.Duration
 	caChallengeKey  crypto.Signer
 }
 
@@ -78,4 +79,10 @@ func (sa *SignAPI) makeToken(actx *auth.AuthContext) *jwt.Token {
 		},
 	}
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+}
+
+// SetCertBackdate makes certificates valid from d before the time of
+// signing, to tolerate hosts whose clocks are behind.
+func (sa *SignAPI) SetCertBackdate(d time.Duration) {
+	sa.certBackdate = d
 }
