@@ -134,6 +134,9 @@ func Build() (*Server, error) {
 		})
 	}
 
+	if err := ensureAgentSocketDir(conf.AgentSocket); err != nil {
+		return nil, fmt.Errorf("cannot initialize server: %w", err)
+	}
 	signer := keysigner.New(conf.AgentSocket, conf.CertSigningKeyFingerprint)
 	for range 3 {
 		if signer.AgentPing() {

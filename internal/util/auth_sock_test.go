@@ -155,3 +155,26 @@ func TestResolveTrustedOtherOwner(t *testing.T) {
 	_, err = resolveTrusted(sock, lstatOwnedBy(sock))
 	assert.NoError(t, err)
 }
+
+func TestEnsurePrivateDir(t *testing.T) {
+	base := t.TempDir()
+
+	dir := filepath.Join(base, "private")
+	require.NoError(t, EnsurePrivateDir(dir))
+	fi, err := os.Lstat(dir)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), fi.Mode().Perm())
+	assert.NoError(t, EnsurePrivateDir(dir), "existing private directory")
+
+	open := filepath.Join(base, "open")
+	require.NoError(t, os.Mkdir(open, 0o755)) //nolint:gosec // too permissive on purpose
+	assert.ErrorContains(t, EnsurePrivateDir(open), "accessible by other users")
+
+	link := filepath.Join(base, "link")
+	require.NoError(t, os.Symlink(dir, link))
+	assert.ErrorContains(t, EnsurePrivateDir(link), "not a directory")
+
+	file := filepath.Join(base, "file")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	assert.Error(t, EnsurePrivateDir(file))
+}
