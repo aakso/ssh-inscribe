@@ -120,6 +120,10 @@ func Build() (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid CaChallengeLifetime: %w", err)
 	}
+	backdate, err := time.ParseDuration(conf.CertBackdate)
+	if err != nil || backdate < 0 {
+		return nil, fmt.Errorf("invalid certBackdate %q: must be a non-negative duration", conf.CertBackdate)
+	}
 
 	// Auth backends
 	authList := []signapi.AuthenticatorListEntry{}
@@ -172,6 +176,7 @@ func Build() (*Server, error) {
 	if len(conf.CaAdminPrincipals) == 0 && conf.CertSigningKeyFingerprint == "" {
 		Log.Warn("neither caAdminPrincipals nor certSigningKeyFingerprint is set: any user who can log in may upload the CA key while none is loaded")
 	}
+	signapi.SetCertBackdate(backdate)
 
 	s := &Server{
 		config:  conf,

@@ -130,6 +130,10 @@ certificate principals on commas when matching a `principals=` option, so
 the server never issues principals that contain commas or control
 characters: they are dropped from the certificate and a warning is logged.
 
+Certificates are valid from one minute before they are issued, so hosts whose
+clock is slightly behind accept them. Set `certBackdate` (`0` to disable) to
+change this; the expiry time is not affected.
+
 ## Use the client
 Recommended way to use the client is to have `ssh-agent` running.
 However keyfiles are also supported. Most options are also settable as
