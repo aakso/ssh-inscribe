@@ -4,8 +4,10 @@ import (
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
+	"fmt"
 	"time"
 
+	"github.com/gobwas/glob"
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
@@ -31,6 +33,7 @@ type SignAPI struct {
 	maxCertLife     time.Duration
 	caChallengeLife time.Duration
 	caChallengeKey  crypto.Signer
+	caAdmins        []glob.Glob
 }
 
 func New(
@@ -61,6 +64,38 @@ func New(
 		caChallengeLife: caChallengeLife,
 		caChallengeKey:  caChallengeKey,
 	}
+}
+
+// RestrictCAUpload limits CA key uploads to logins with a principal that
+// matches one of the glob patterns. Without patterns any completed login may
+// upload a key while none is loaded.
+func (sa *SignAPI) RestrictCAUpload(patterns []string) error {
+	globs := make([]glob.Glob, 0, len(patterns))
+	for _, p := range patterns {
+		g, err := glob.Compile(p)
+		if err != nil {
+			return fmt.Errorf("cannot compile CA admin principal %q: %w", p, err)
+		}
+		globs = append(globs, g)
+	}
+	sa.caAdmins = globs
+	return nil
+}
+
+// isCAAdmin returns the principal that permits actx to upload the CA key.
+func (sa *SignAPI) isCAAdmin(actx *auth.AuthContext) (string, bool) {
+	if len(sa.caAdmins) == 0 {
+		return "", true
+	}
+	principals, _ := auth.SplitUnsafePrincipals(actx.GetPrincipals())
+	for _, p := range principals {
+		for _, g := range sa.caAdmins {
+			if g.Match(p) {
+				return p, true
+			}
+		}
+	}
+	return "", false
 }
 
 type SignClaim struct {

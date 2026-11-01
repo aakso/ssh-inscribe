@@ -11,11 +11,13 @@ import (
 )
 
 const (
-	TestUser     = "testuser"
-	TestUserCN   = "Test User"
-	TestPassword = "testpassword"
-	TestGroupCN1 = "Test Group 1"
-	TestGroupCN2 = "Test Group 2"
+	TestUser = "testuser"
+	// Canonical form of TestUser in the directory
+	TestUserAccountName = "TestUser"
+	TestUserCN          = "Test User"
+	TestPassword        = "testpassword"
+	TestGroupCN1        = "Test Group 1"
+	TestGroupCN2        = "Test Group 2"
 )
 
 func newTestServer(logger logrus.StdLogger) *ldapserver.Server {
@@ -70,6 +72,8 @@ func handleUserSearch(w ldapserver.ResponseWriter, m *ldapserver.Message) {
 	e.AddAttribute("displayName", "Test User")
 	e.AddAttribute("cn", TestUserCN)
 	e.AddAttribute("objectClass", "user")
+	e.AddAttribute("sAMAccountName", TestUserAccountName)
+	e.AddAttribute("uid", TestUser, "tuser")
 	w.Write(e)
 	w.Write(res)
 }

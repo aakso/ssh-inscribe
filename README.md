@@ -90,7 +90,8 @@ users:
 4. Edit other options in `~/.ssh_inscribe/config.yaml` (you should set
    `TLSCertFile` and `TLSKeyFile` at least). Set
    `certSigningKeyFingerprint` to the SHA256 fingerprint of your CA key so
-   that no other key can be loaded as the signing key.
+   that no other key can be loaded as the signing key, and limit who may
+   upload the CA key with `caAdminPrincipals` (see below).
 5. Start the server `ssh-inscribe server`
 6. Use the client to add a CA signing key:
 ```
@@ -100,6 +101,17 @@ alternatively you can use OpenSSH `ssh-add` command locally on the server:
 ```
 SSH_AUTH_SOCK=<path to auth sock> ssh-add <keyfile>
 ```
+The key can be uploaded whenever none is loaded, e.g. after a restart. By
+default any user who can log in may upload it; restrict this to logins that
+have a matching principal (glob patterns):
+```
+server:
+  caAdminPrincipals:
+  - my.company.example.com-ca-admins
+```
+Every principal of the login counts, including the user name principal and
+fixed `principals`. Use a name users cannot have, e.g. a group principal
+with a `principalTemplate` prefix as in the LDAP example below.
 ## Configure your hosts to trust the CA public key
 There are many guides to this available in the web but the easiest way
 is to use the `authorized_keys` file. Just put following in it:
@@ -113,8 +125,8 @@ Refer to `sshd_options` man page and look for `TrustedUserCAKeys` and
 Always restrict which principals are accepted (`principals=` or
 `AuthorizedPrincipalsFile`). Note that OpenSSH (up to at least 10.2) splits
 certificate principals on commas when matching a `principals=` option, so
-avoid principal names containing commas; the server logs a warning when it
-issues one.
+the server never issues principals that contain commas or control
+characters: they are dropped from the certificate and a warning is logged.
 
 ## Use the client
 Recommended way to use the client is to have `ssh-agent` running.
@@ -181,6 +193,9 @@ mycompanyldapconfig:
   groupSearchFilter: (&(objectClass=group)(member:1.2.840.113556.1.4.1941:={{.User.DN}})) # Recursive group search
   subjectNameTemplate: '{{.User.displayName}}'              # How to display user name in KeyId in the SSH Cert
   principalTemplate: 'my.company.example.com-{{.Group.cn}}' # How to display group based Principals in the SSH Cert
+  userNamePrincipal: true                                   # Add the user name as a principal
+  userNamePrincipalAttribute: sAMAccountName                # Take that principal from this attribute of the user entry instead of the name as typed
+  verifyBoundIdentity: true                                 # Check that the user entry found is the one that was bound as (WhoAmI)
   # Add these Cert options to every successful authentication
   principals: []
   criticalOptions: {}
@@ -202,6 +217,21 @@ server:
 Values substituted into `userSearchFilter` and `groupSearchFilter`
 (`{{.UserName}}`, `{{.User.*}}`) are escaped for LDAP filters automatically.
 Empty passwords are always refused.
+
+`userNamePrincipalAttribute` is empty by default, which uses the user name
+as typed at login. Directories match names case-insensitively and AD
+accepts several name forms, so setting it (e.g. `sAMAccountName` or `uid`)
+gives the canonical name. The attribute must have exactly one value and be
+a user attribute (operational attributes such as `entryUUID` are not
+returned).
+
+With `verifyBoundIdentity` (the default) the backend asks the directory who
+it is bound as (RFC 4532 WhoAmI) and refuses the login unless that is the
+user entry found by `userSearchFilter`: the DN is compared for OpenLDAP and
+389 DS, the account name with `sAMAccountName` for Microsoft AD. For AD the
+domain part of the answer is not checked; in a forest with several domains,
+limit `userSearchBase` to the domain users bind to. Set it to `false` only for
+directories that do not support WhoAmI.
 
 Now here is an example session using the above configuration (ssh-agent is running):
 ```

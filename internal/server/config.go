@@ -36,6 +36,7 @@ type Config struct {
 	PKCS11Provider            string        `yaml:"pkcs11Provider"`
 	PKCS11Pin                 string        `yaml:"pkcs11Pin"`
 	CertSigningKeyFingerprint string        `yaml:"certSigningKeyFingerprint"`
+	CaAdminPrincipals         []string      `yaml:"caAdminPrincipals"`
 	TokenSigningKey           string        `yaml:"tokenSigningKey"`
 }
 
@@ -60,6 +61,7 @@ var Defaults = &Config{
 	PKCS11Provider:            "",
 	PKCS11Pin:                 "",
 	CertSigningKeyFingerprint: "",
+	CaAdminPrincipals:         []string{},
 	TokenSigningKey:           "",
 }
 

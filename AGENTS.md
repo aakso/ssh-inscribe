@@ -51,8 +51,12 @@ Every package has a `doc.go` describing it.
 Do not break these; each has a test.
 
 - Never issue a certificate without principals (sshd may accept it for any
-  user). Principals coming from an identity provider must not contain
-  commas or control characters (`auth.UnsafePrincipal`).
+  user). Never issue principals that contain commas or control characters
+  (`auth.UnsafePrincipal`); the sign handler drops them for every backend.
+- CA key uploads (`/v1/ca`, `/v1/ca/response`) require a principal matching
+  `caAdminPrincipals` when it is set.
+- LDAP: the user entry must be the bound identity (`verifyBoundIdentity`,
+  WhoAmI) before its groups become principals.
 - Every endpoint that acts on a login must require `AuthContext.IsValid()`
   (completed, not pending).
 - Decode each JWT into a fresh claims object; only HS256 is accepted.
