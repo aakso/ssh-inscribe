@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
@@ -38,48 +39,103 @@ func LocalListen(name string) (net.Listener, error) {
 }
 
 // CheckSocketPath verifies that name is a unix socket that another local
-// user could not have planted. A socket (or a symlink to one) owned by
-// someone other than the current user or root is refused when it lives in a
-// world-writable directory such as /tmp.
+// user could not have planted or swapped. Every component of the path is
+// checked, following symlinks: a world-writable directory must have the
+// sticky bit set, and entries in a world-writable directory (such as /tmp)
+// must be owned by the current user or root. This covers the socket, the
+// directories leading to it and the symlinks on the way. Entries owned by
+// another user elsewhere are accepted, e.g. an agent run by a dedicated user.
 func CheckSocketPath(name string) error {
-	lfi, err := os.Lstat(name)
+	resolved, err := resolveTrusted(name, os.Lstat)
 	if err != nil {
 		return err
 	}
-	if err := checkPlantedByOtherUser(name, lfi); err != nil {
-		return err
-	}
-	fi, err := os.Stat(name)
+	fi, err := os.Stat(resolved)
 	if err != nil {
 		return err
 	}
 	if fi.Mode()&os.ModeSocket == 0 {
 		return fmt.Errorf("%s is not a socket", name)
 	}
-	if lfi.Mode()&os.ModeSymlink != 0 {
-		target, err := filepath.EvalSymlinks(name)
-		if err != nil {
-			return err
-		}
-		return checkPlantedByOtherUser(target, fi)
-	}
 	return nil
 }
 
-func checkPlantedByOtherUser(name string, fi os.FileInfo) error {
+// Same limit as Linux (MAXSYMLINKS).
+const maxSymlinks = 40
+
+// resolveTrusted resolves name like the kernel does, one component at a
+// time, and checks each entry with checkEntry. Errors from lstat are
+// returned unwrapped so that os.IsNotExist works.
+func resolveTrusted(name string, lstat func(string) (os.FileInfo, error)) (string, error) {
+	abs, err := filepath.Abs(name)
+	if err != nil {
+		return "", err
+	}
+	cur := "/"
+	rest := splitPath(abs)
+	links := 0
+	for len(rest) > 0 {
+		comp := rest[0]
+		rest = rest[1:]
+		switch comp {
+		case "", ".":
+			continue
+		case "..":
+			cur = filepath.Dir(cur)
+			continue
+		}
+		parent, err := lstat(cur)
+		if err != nil {
+			return "", err
+		}
+		next := filepath.Join(cur, comp)
+		fi, err := lstat(next)
+		if err != nil {
+			return "", err
+		}
+		if err := checkEntry(next, fi, parent); err != nil {
+			return "", err
+		}
+		if fi.Mode()&os.ModeSymlink == 0 {
+			cur = next
+			continue
+		}
+		if links++; links > maxSymlinks {
+			return "", fmt.Errorf("%s: too many levels of symbolic links", name)
+		}
+		target, err := os.Readlink(next)
+		if err != nil {
+			return "", err
+		}
+		if filepath.IsAbs(target) {
+			cur = "/"
+		}
+		rest = append(splitPath(target), rest...)
+	}
+	return cur, nil
+}
+
+func splitPath(p string) []string {
+	return strings.Split(p, string(filepath.Separator))
+}
+
+// checkEntry refuses an entry that another user could have created or can
+// replace: anything in a world-writable directory without the sticky bit, or
+// an entry owned by someone other than the current user or root in a
+// world-writable directory.
+func checkEntry(name string, fi, parent os.FileInfo) error {
+	if parent.Mode().Perm()&0o002 == 0 {
+		return nil
+	}
+	if parent.Mode()&os.ModeSticky == 0 {
+		return fmt.Errorf("refusing to use %s: %s is world-writable without the sticky bit", name, filepath.Dir(name))
+	}
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {
-		return nil
+		return fmt.Errorf("refusing to use %s: cannot determine the owner", name)
 	}
 	if int(st.Uid) == os.Getuid() || st.Uid == 0 {
 		return nil
 	}
-	dir, err := os.Stat(filepath.Dir(name))
-	if err != nil {
-		return err
-	}
-	if dir.Mode().Perm()&0o002 != 0 {
-		return fmt.Errorf("refusing to use %s: owned by uid %d in a world-writable directory", name, st.Uid)
-	}
-	return nil
+	return fmt.Errorf("refusing to use %s: owned by uid %d in a world-writable directory", name, st.Uid)
 }

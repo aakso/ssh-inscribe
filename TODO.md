@@ -119,10 +119,6 @@ limits or document a reverse proxy setup.
 
 ### Smaller items
 
-- `util.CheckSocketPath` only inspects the socket's own directory and one
-  symlink hop. Sockets owned by another user in a directory that user owns,
-  or symlink chains through world-writable directories, are not detected.
-
 - The default agent socket of non-packaged builds is
   `$TMPDIR/ssh_inscribe_agent.sock`. Sockets planted by other users are now
   refused; moving the default to a private runtime directory would be cleaner
