@@ -69,8 +69,6 @@ limits or document a reverse proxy setup.
 
 - authldap: any `startTLS` value in `serverURL` enables StartTLS, including
   `false` (a warning is logged).
-- The client prints server-provided strings (errors, key ids, principals) to
-  the terminal without filtering control characters.
 - Release workflow: snapshot builds for pull requests run with
   `contents: write`; split them into a read-only job.
 
