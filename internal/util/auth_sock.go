@@ -4,10 +4,12 @@ package util
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -41,8 +43,8 @@ func LocalListen(name string) (net.Listener, error) {
 // CheckSocketPath verifies that name is a unix socket that another local
 // user could not have planted or swapped. Every component of the path is
 // checked, following symlinks: a world-writable directory must have the
-// sticky bit set, and entries in a world-writable directory (such as /tmp)
-// must be owned by the current user or root. This covers the socket, the
+// sticky bit set, and both it and its entries (such as /tmp and the files in
+// it) must be owned by the current user or root. This covers the socket, the
 // directories leading to it and the symlinks on the way. Entries owned by
 // another user elsewhere are accepted, e.g. an agent run by a dedicated user.
 func CheckSocketPath(name string) error {
@@ -67,12 +69,17 @@ const maxSymlinks = 40
 // time, and checks each entry with checkEntry. Errors from lstat are
 // returned unwrapped so that os.IsNotExist works.
 func resolveTrusted(name string, lstat func(string) (os.FileInfo, error)) (string, error) {
-	abs, err := filepath.Abs(name)
-	if err != nil {
-		return "", err
-	}
+	// Not filepath.Abs: it cleans the path, which drops ".." before the
+	// symlinks in front of it are resolved.
 	cur := "/"
-	rest := splitPath(abs)
+	if !filepath.IsAbs(name) {
+		wd, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		cur = wd
+	}
+	rest := splitPath(name)
 	links := 0
 	for len(rest) > 0 {
 		comp := rest[0]
@@ -120,24 +127,45 @@ func splitPath(p string) []string {
 }
 
 // checkEntry refuses an entry that another user could have created or can
-// replace: anything in a world-writable directory without the sticky bit, or
-// an entry owned by someone other than the current user or root in a
-// world-writable directory.
+// replace: anything in a world-writable directory without the sticky bit, and
+// in a sticky world-writable directory an entry, or a directory, owned by
+// someone other than the current user or root.
 func checkEntry(name string, fi, parent os.FileInfo) error {
 	if parent.Mode().Perm()&0o002 == 0 {
 		return nil
 	}
+	dir := filepath.Dir(name)
 	if parent.Mode()&os.ModeSticky == 0 {
-		return fmt.Errorf("refusing to use %s: %s is world-writable without the sticky bit", name, filepath.Dir(name))
+		return fmt.Errorf("refusing to use %s: %s is world-writable without the sticky bit", name, dir)
 	}
+	// The owner of a sticky directory can still remove any entry in it
+	if uid, err := untrustedOwner(parent); err != nil || uid != "" {
+		return fmt.Errorf("refusing to use %s: world-writable directory %s owned by %s", name, dir, ownerDesc(uid, err))
+	}
+	if uid, err := untrustedOwner(fi); err != nil || uid != "" {
+		return fmt.Errorf("refusing to use %s: owned by %s in a world-writable directory", name, ownerDesc(uid, err))
+	}
+	return nil
+}
+
+// untrustedOwner returns the owner of fi, or "" for the current user and
+// root.
+func untrustedOwner(fi os.FileInfo) (string, error) {
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {
-		return fmt.Errorf("refusing to use %s: cannot determine the owner", name)
+		return "", errors.New("unknown owner")
 	}
 	if int(st.Uid) == os.Getuid() || st.Uid == 0 {
-		return nil
+		return "", nil
 	}
-	return fmt.Errorf("refusing to use %s: owned by uid %d in a world-writable directory", name, st.Uid)
+	return strconv.FormatUint(uint64(st.Uid), 10), nil
+}
+
+func ownerDesc(uid string, err error) string {
+	if err != nil {
+		return err.Error()
+	}
+	return "uid " + uid
 }
 
 // EnsurePrivateDir creates dir accessible only by the current user, or checks
