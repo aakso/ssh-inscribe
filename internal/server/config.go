@@ -36,6 +36,7 @@ type Config struct {
 	MaxCertLifetime           string        `yaml:"maxCertLifetime"`
 	DefaultCertLifetime       string        `yaml:"defaultCertLifetime"`
 	CaChallengeLifetime       string        `yaml:"caChallengeLifetime"`
+	CertBackdate              string        `yaml:"certBackdate"`
 	AgentSocket               string        `yaml:"agentSocket"`
 	PKCS11Provider            string        `yaml:"pkcs11Provider"`
 	PKCS11Pin                 string        `yaml:"pkcs11Pin"`
@@ -60,6 +61,7 @@ var Defaults = &Config{
 	MaxCertLifetime:           "24h",
 	DefaultCertLifetime:       "1h",
 	CaChallengeLifetime:       "5m",
+	CertBackdate:              "1m",
 	AgentSocket:               defaultAgentSocket(),
 	PKCS11Provider:            "",
 	PKCS11Pin:                 "",

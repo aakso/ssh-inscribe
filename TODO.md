@@ -119,8 +119,6 @@ limits or document a reverse proxy setup.
 
 ### Smaller items
 
-- Certificates are valid from "now". Back-dating `ValidAfter` by a minute
-  would tolerate host clock skew (behaviour change).
 - The client prints server-provided strings (errors, key ids, principals) to
   the terminal without filtering control characters.
 - Release workflow: snapshot builds for pull requests run with

@@ -120,6 +120,10 @@ func Build() (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid CaChallengeLifetime: %w", err)
 	}
+	backdate, err := time.ParseDuration(conf.CertBackdate)
+	if err != nil || backdate < 0 {
+		return nil, fmt.Errorf("invalid certBackdate %q: must be a non-negative duration", conf.CertBackdate)
+	}
 
 	// Auth backends
 	authList := []signapi.AuthenticatorListEntry{}
@@ -166,6 +170,7 @@ func Build() (*Server, error) {
 
 	// Signing API
 	signapi := signapi.New(authList, signer, []byte(conf.TokenSigningKey), defaultlife, maxlife, caChallengeLife)
+	signapi.SetCertBackdate(backdate)
 
 	s := &Server{
 		config:  conf,
