@@ -293,7 +293,7 @@ func (c *Client) addCAKey() error {
 		return fmt.Errorf("could not send key: %w", err)
 	}
 	if res.StatusCode() != http.StatusAccepted {
-		return fmt.Errorf("could not send key, got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("could not send key, got code %d and message: %s", res.StatusCode(), serverMessage(res))
 	}
 	log.Debug("sent ca key to the server")
 	return nil
@@ -331,10 +331,10 @@ func (c *Client) caChallenge() error {
 		return fmt.Errorf("could not send key: %w", err)
 	}
 	if res.StatusCode() != http.StatusAccepted {
-		return fmt.Errorf("could not send key, got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("could not send key, got code %d and message: %s", res.StatusCode(), serverMessage(res))
 	}
 	log.Debug("initiated a CA challenge")
-	fmt.Printf("Challenge:\n%v\n", string(res.Body()))
+	fmt.Printf("Challenge:\n%v\n", util.TerminalSafe(string(res.Body())))
 	return nil
 }
 
@@ -358,7 +358,7 @@ func (c *Client) sendChallengeResponse() error {
 		return fmt.Errorf("could not send challenge-response: %w", err)
 	}
 	if res.StatusCode() != http.StatusOK {
-		return fmt.Errorf("could not send challenge-response, got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("could not send challenge-response, got code %d and message: %s", res.StatusCode(), serverMessage(res))
 	}
 	log.Debug("sent challenge-response to the server")
 	return nil
@@ -619,7 +619,7 @@ func (c *Client) sign() error {
 		return fmt.Errorf("could not sign: %w", err)
 	}
 	if res.StatusCode() != http.StatusOK {
-		return fmt.Errorf("could not sign got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("could not sign got code %d and message: %s", res.StatusCode(), serverMessage(res))
 	}
 
 	rawCerts := res.Body()
@@ -662,7 +662,7 @@ func (c *Client) authenticateFederated(authName, authRealm string) error {
 			}
 			fmt.Printf("\rWaiting for authentication to complete for %q (%s) %s ",
 				authName,
-				authRealm,
+				util.TerminalSafe(authRealm),
 				string(spinner[i%4]))
 			time.Sleep(FederatedAuthenticatorPollInterval * time.Second)
 			initial = false
@@ -772,7 +772,7 @@ outer:
 				}
 				continue outer
 			default:
-				return fmt.Errorf("unknown credential type %s", au.AuthenticatorCredentialType)
+				return fmt.Errorf("unknown credential type %q", au.AuthenticatorCredentialType)
 			}
 			log.WithField("authenticator", au.AuthenticatorName).Debug("authenticating")
 			// Send Credentials
@@ -880,7 +880,7 @@ func (c *Client) discoverCA() error {
 		return fmt.Errorf("could not discover CA: %w", err)
 	}
 	if res.StatusCode() != http.StatusOK {
-		return fmt.Errorf("could not discover CA, got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("could not discover CA, got code %d and message: %s", res.StatusCode(), serverMessage(res))
 	}
 	key, _, _, _, err := ssh.ParseAuthorizedKey(res.Body())
 	if err != nil {
@@ -1075,7 +1075,7 @@ func (c *Client) checkReady() error {
 		return fmt.Errorf("could not check readiness: %w", err)
 	}
 	if res.StatusCode() != http.StatusNoContent {
-		return fmt.Errorf("got code %d and message: %s", res.StatusCode(), res.Body())
+		return fmt.Errorf("got code %d and message: %s", res.StatusCode(), serverMessage(res))
 	}
 	return nil
 }
@@ -1155,8 +1155,8 @@ func (c *Client) printCertificate(w io.Writer, cert *ssh.Certificate) error {
 		ssh.FingerprintSHA256(c.ca),
 		ssh.FingerprintLegacyMD5(c.ca))
 	fmt.Fprintf(&b, "\n%20s: %s", "CA Signature Format",
-		cert.Signature.Format)
-	fmt.Fprintf(&b, "\n%20s: %s", "KeyId", cert.KeyId)
+		util.TerminalSafe(cert.Signature.Format))
+	fmt.Fprintf(&b, "\n%20s: %s", "KeyId", util.TerminalSafe(cert.KeyId))
 	fmt.Fprintf(&b, "\n%20s: %s", "Valid from", validFrom)
 	if cert.ValidBefore == ssh.CertTimeInfinity {
 		fmt.Fprintf(&b, "\n%20s: %s", "Valid to", "forever")
@@ -1168,19 +1168,24 @@ func (c *Client) printCertificate(w io.Writer, cert *ssh.Certificate) error {
 	}
 	fmt.Fprintf(&b, "\n%20s:", "Principals")
 	for _, p := range cert.ValidPrincipals {
-		fmt.Fprintf(&b, "\n%20s  %s", " ", p)
+		fmt.Fprintf(&b, "\n%20s  %s", " ", util.TerminalSafe(p))
 	}
 	fmt.Fprintf(&b, "\n%20s:", "Critical Options")
 	for k, v := range cert.CriticalOptions {
-		fmt.Fprintf(&b, "\n%20s  %s %s", " ", k, v)
+		fmt.Fprintf(&b, "\n%20s  %s %s", " ", util.TerminalSafe(k), util.TerminalSafe(v))
 	}
 	fmt.Fprintf(&b, "\n%20s:", "Extensions")
 	for k, v := range cert.Extensions {
-		fmt.Fprintf(&b, "\n%20s  %s %s", " ", k, v)
+		fmt.Fprintf(&b, "\n%20s  %s %s", " ", util.TerminalSafe(k), util.TerminalSafe(v))
 	}
 	b.WriteString("\n")
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// serverMessage returns the body of an error response for printing.
+func serverMessage(res *resty.Response) string {
+	return util.TerminalSafe(string(res.Body()))
 }
 
 func (c *Client) newReq() *resty.Request {
@@ -1236,7 +1241,7 @@ func (c *Client) Close() {
 }
 
 func openFederatedAuthURL(authURL string) {
-	fmt.Printf("Attempting to open browser to URL: %s\n", authURL)
+	fmt.Printf("Attempting to open browser to URL: %s\n", util.TerminalSafe(authURL))
 	fmt.Println("If the browser doesn't open, navigate to the URL manually")
 	// The URL comes from the server. Only hand web URLs to the OS opener,
 	// which would otherwise launch any registered protocol handler.
@@ -1269,17 +1274,18 @@ func getCurrentUsername() string {
 
 func interactiveCredentialsPrompt(name, realm, credentialType, def string) ([]byte, error) {
 	var ret []byte
+	// name and realm come from the server
 	prompt := fmt.Sprintf("Enter %s for %q (%s): ",
 		capitalize(credentialType),
 		name,
-		realm,
+		util.TerminalSafe(realm),
 	)
 	if def != "" {
 		prompt = fmt.Sprintf("Enter %s for %q (%s) [default: %s]: ",
 			capitalize(credentialType),
 			name,
-			realm,
-			def,
+			util.TerminalSafe(realm),
+			util.TerminalSafe(def),
 		)
 	}
 	ret = askPass(prompt)

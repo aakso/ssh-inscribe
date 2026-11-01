@@ -119,8 +119,6 @@ limits or document a reverse proxy setup.
 
 ### Smaller items
 
-- The client prints server-provided strings (errors, key ids, principals) to
-  the terminal without filtering control characters.
 - Release workflow: snapshot builds for pull requests run with
   `contents: write`; split them into a read-only job.
 

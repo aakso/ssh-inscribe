@@ -444,6 +444,31 @@ func TestPrintCertificate(t *testing.T) {
 		assert.Contains(t, s, want)
 	}
 	assert.NotContains(t, s, "expires in")
+
+	// Strings in the certificate come from the server
+	cert.KeyId = "kid\x1b]0;owned\x07"
+	cert.ValidPrincipals = []string{"p1\r\x1b[2K"}
+	cert.Extensions = map[string]string{"x\x1b[31m": "\x1b[0m"}
+	out.Reset()
+	require.NoError(t, c.printCertificate(&out, cert))
+	s = out.String()
+	assert.NotContains(t, s, "\x1b")
+	assert.NotContains(t, s, "\r")
+	assert.Contains(t, s, `KeyId: kid\x1b]0;owned\x07`)
+}
+
+func TestServerErrorMessageIsEscaped(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("bad\x1b]52;c;AAAA\x07"))
+	}))
+	t.Cleanup(srv.Close)
+	c := &Client{Config: &Config{URL: srv.URL, Insecure: true, Timeout: 5 * time.Second}}
+	require.NoError(t, c.initREST())
+	err := c.discoverCA()
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "\x1b")
+	assert.Contains(t, err.Error(), `bad\x1b]52;c;AAAA\x07`)
 }
 
 func TestParsePrivateKey(t *testing.T) {
