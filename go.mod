@@ -2,7 +2,7 @@ module github.com/aakso/ssh-inscribe
 
 go 1.26.4
 
-toolchain go1.27.3
+toolchain go1.27.4
 
 require (
 	github.com/Microsoft/go-winio v0.6.4
