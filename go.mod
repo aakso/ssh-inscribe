@@ -10,7 +10,7 @@ require (
 	github.com/blang/semver/v4 v4.0.0
 	github.com/chzyer/readline v1.5.1
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/go-jose/go-jose/v4 v4.1.6
+	github.com/go-jose/go-jose/v4 v4.1.8
 	github.com/go-ldap/ldap/v3 v3.4.15
 	github.com/go-resty/resty/v2 v2.17.2
 	github.com/go-viper/mapstructure/v2 v2.5.0
