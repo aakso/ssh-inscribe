@@ -119,6 +119,11 @@ limits or document a reverse proxy setup.
   certificate principals. Evaluate (differential tests against v0.2.3) before
   upgrading.
 - `github.com/labstack/echo/v4` -> v5 when v4 support ends.
+- `scripts/vuln.sh` accepts GO-2026-6872 and GO-2026-6875 for echo/v4. They
+  are fixed in v4.16.3, which is in use, but the Go vulnerability database
+  has no fixed version for the v4 module and reports every release
+  (golang/vulndb#6919, #6998). Drop the wrapper and run govulncheck directly
+  once the database is corrected.
 - `github.com/sirupsen/logrus` (maintenance mode) -> `log/slog`.
 - Unmaintained but working: `mitchellh/copystructure` (archived),
   `skratchdot/open-golang`, `chzyer/readline`, `ScaleFT/sshkeys`.
