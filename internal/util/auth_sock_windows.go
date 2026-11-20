@@ -57,3 +57,8 @@ func LocalListen(name string) (net.Listener, error) {
 func CheckSocketPath(_ string) error {
 	return nil
 }
+
+// EnsurePrivateDir creates dir. Access control is not checked on Windows.
+func EnsurePrivateDir(dir string) error {
+	return os.MkdirAll(dir, 0o700)
+}

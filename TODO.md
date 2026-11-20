@@ -69,20 +69,13 @@ limits or document a reverse proxy setup.
 
 - authldap: any `startTLS` value in `serverURL` enables StartTLS, including
   `false` (a warning is logged).
-- `util.CheckSocketPath` only inspects the socket's own directory and one
-  symlink hop. Sockets owned by another user in a directory that user owns,
-  or symlink chains through world-writable directories, are not detected.
-
-- The default agent socket of non-packaged builds is
-  `$TMPDIR/ssh_inscribe_agent.sock`. Sockets planted by other users are now
-  refused; moving the default to a private runtime directory would be cleaner
-  (changes the default path).
-- Certificates are valid from "now". Back-dating `ValidAfter` by a minute
-  would tolerate host clock skew (behaviour change).
-- The client prints server-provided strings (errors, key ids, principals) to
-  the terminal without filtering control characters.
-- Release workflow: snapshot builds for pull requests run with
-  `contents: write`; split them into a read-only job.
+- Non-packaged builds: if a temporary-directory cleaner removes
+  `$TMPDIR/ssh-inscribe-<uid>` while the server runs, `ssh-agent` cannot
+  start again until the server restarts. Create the directory when starting
+  the agent.
+- Release workflow: the tag job pipes goreleaser's install script to `bash`,
+  uses an unpinned `golang:` image and runs an unpinned `gem install`; pin
+  them or move the extra tooling out of the write-permission job.
 
 ## Packaging (breaking for custom paths)
 

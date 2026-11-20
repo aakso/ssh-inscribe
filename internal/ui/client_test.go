@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/labstack/echo/v4"
 	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -344,6 +346,30 @@ func TestDebugOutputIsRedacted(t *testing.T) {
 	assert.NotContains(t, log, base64.StdEncoding.EncodeToString([]byte(testUser+":"+testPassword)))
 }
 
+func TestDebugOutputIsEscaped(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// net/http refuses control characters in headers, but not 8-bit CSI
+		w.Header().Set("X-Evil", "a\x9b2J")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("line1\nbad\x1b[2J"))
+	}))
+	t.Cleanup(srv.Close)
+	var out bytes.Buffer
+	c := &Client{Config: &Config{URL: srv.URL, Insecure: true, Timeout: 5 * time.Second, Debug: true}}
+	require.NoError(t, c.initREST())
+	c.rest.SetLogger(bufLogger{&out})
+	res, err := c.newReq().Get(c.urlFor("ca"))
+	require.NoError(t, err)
+
+	log := out.String()
+	require.Contains(t, log, "line1\nbad", "newlines are kept")
+	assert.NotContains(t, log, "\x1b")
+	assert.Contains(t, log, `bad\x1b[2J`)
+	assert.NotContains(t, log, "\x9b")
+	assert.Contains(t, log, `a\x9b2J`)
+	assert.Equal(t, "a\x9b2J", res.Header().Get("X-Evil"), "the response itself is not modified")
+}
+
 type bufLogger struct{ b *bytes.Buffer }
 
 func (l bufLogger) Errorf(f string, v ...any) { fmt.Fprintf(l.b, f, v...) }
@@ -450,6 +476,31 @@ func TestPrintCertificate(t *testing.T) {
 		assert.Contains(t, s, want)
 	}
 	assert.NotContains(t, s, "expires in")
+
+	// Strings in the certificate come from the server
+	cert.KeyId = "kid\x1b]0;owned\x07"
+	cert.ValidPrincipals = []string{"p1\r\x1b[2K"}
+	cert.Extensions = map[string]string{"x\x1b[31m": "\x1b[0m"}
+	out.Reset()
+	require.NoError(t, c.printCertificate(&out, cert))
+	s = out.String()
+	assert.NotContains(t, s, "\x1b")
+	assert.NotContains(t, s, "\r")
+	assert.Contains(t, s, `KeyId: kid\x1b]0;owned\x07`)
+}
+
+func TestServerErrorMessageIsEscaped(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("bad\x1b]52;c;AAAA\x07"))
+	}))
+	t.Cleanup(srv.Close)
+	c := &Client{Config: &Config{URL: srv.URL, Insecure: true, Timeout: 5 * time.Second}}
+	require.NoError(t, c.initREST())
+	err := c.discoverCA()
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "\x1b")
+	assert.Contains(t, err.Error(), `bad\x1b]52;c;AAAA\x07`)
 }
 
 func TestParsePrivateKey(t *testing.T) {
@@ -561,4 +612,43 @@ func TestMarshalPrivateKeyLoadableByOpenSSH(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestTerminalSafeLogger(t *testing.T) {
+	var b bytes.Buffer
+	l := &terminalSafeLogger{l: log.New(&b, "", 0)}
+	l.Debugf("STATUS       : %s", "500 Bad\x1b[2JStatus\r\nnext line\n\tUser-Agent: x")
+
+	out := b.String()
+	assert.NotContains(t, out, "\x1b")
+	assert.NotContains(t, out, "\r")
+	assert.Contains(t, out, `\x1b[2J`)
+	assert.Contains(t, out, "next line")
+	assert.Contains(t, out, "\tUser-Agent: x", "tabs for indentation are kept")
+}
+
+func TestInitRESTInstallsDebugLogger(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	var out bytes.Buffer
+	old := newDebugLogger
+	newDebugLogger = func() resty.Logger { return bufLogger{&out} }
+	t.Cleanup(func() { newDebugLogger = old })
+
+	c := &Client{Config: &Config{URL: srv.URL, Insecure: true, Timeout: 5 * time.Second, Debug: true}}
+	require.NoError(t, c.initREST())
+	_, err := c.newReq().Get(c.urlFor("ca"))
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "STATUS", "initREST must install the escaping debug logger")
+}
+
+func TestServerMessage(t *testing.T) {
+	res := (&resty.Response{RawResponse: &http.Response{}}).SetBody([]byte("{\"message\":\"no principals\"}\r\n"))
+	assert.Equal(t, `{"message":"no principals"}`, serverMessage(res))
+
+	res = (&resty.Response{RawResponse: &http.Response{}}).SetBody([]byte("bad\x1b[2Jthing\n"))
+	assert.Equal(t, `bad\x1b[2Jthing`, serverMessage(res))
 }

@@ -61,8 +61,10 @@ Requires Go 1.26.4 or newer.
 ```
 go install github.com/aakso/ssh-inscribe/...@latest
 ```
-Builds made this way keep the agent socket in the system temporary directory
-by default; set `agentSocket` to a private directory for anything but testing.
+Builds made this way keep the agent socket in a private per-user directory
+in the system temporary directory (`$TMPDIR/ssh-inscribe-<uid>/agent.sock`),
+created at startup. Packages use `/var/lib/ssh-inscribe`. Use the packages
+or set `agentSocket` for anything but testing.
 
 ## Quick start (flat file authentication)
 The flat file backend is meant for testing and small setups. Use LDAP or
@@ -127,6 +129,10 @@ Always restrict which principals are accepted (`principals=` or
 certificate principals on commas when matching a `principals=` option, so
 the server never issues principals that contain commas or control
 characters: they are dropped from the certificate and a warning is logged.
+
+Certificates are valid from one minute before they are issued, so hosts whose
+clock is slightly behind accept them. Set `certBackdate` (`0` to disable) to
+change this; the expiry time is not affected.
 
 ## Use the client
 Recommended way to use the client is to have `ssh-agent` running.

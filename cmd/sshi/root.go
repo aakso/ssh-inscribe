@@ -11,6 +11,7 @@ import (
 
 	"github.com/aakso/ssh-inscribe/internal/logging"
 	"github.com/aakso/ssh-inscribe/internal/ui"
+	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
 var RootCmd = &cobra.Command{
@@ -183,7 +184,9 @@ func init() {
 		}
 		names := make([]string, len(discoverResult))
 		for i, v := range discoverResult {
-			names[i] = v.AuthenticatorName
+			// Cobra writes candidates raw; keep server-controlled names
+			// from injecting terminal escapes or descriptions.
+			names[i] = util.TerminalSafe(v.AuthenticatorName)
 		}
 		return names, cobra.ShellCompDirectiveNoFileComp
 	})

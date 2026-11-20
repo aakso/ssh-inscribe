@@ -18,6 +18,12 @@ const (
 	ClientUserAgent = "ssh-inscribe"
 )
 
+// HasVarDir reports whether the build sets a state directory. Packaged
+// builds do.
+func HasVarDir() bool {
+	return varDir != ""
+}
+
 func VarDir() string {
 	if varDir == "" {
 		return os.TempDir()

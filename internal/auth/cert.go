@@ -11,7 +11,7 @@ import (
 	"github.com/aakso/ssh-inscribe/internal/util"
 )
 
-func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validBefore time.Time, maxPrincipalsPerCert int) []*ssh.Certificate {
+func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validAfter, validBefore time.Time, maxPrincipalsPerCert int) []*ssh.Certificate {
 	var kid strings.Builder
 	fmt.Fprintf(&kid, "subject=%q", actx.GetSubjectName())
 	if aid, ok := actx.GetAuthMeta()[MetaAuditID]; ok {
@@ -34,7 +34,7 @@ func MakeCertificates(key ssh.PublicKey, actx *AuthContext, validBefore time.Tim
 			CertType:        ssh.UserCert,
 			KeyId:           kid.String(),
 			ValidPrincipals: principals,
-			ValidAfter:      util.CertTimestamp(time.Now()),
+			ValidAfter:      util.CertTimestamp(validAfter),
 			ValidBefore:     util.CertTimestamp(validBefore),
 			Permissions: ssh.Permissions{
 				CriticalOptions: actx.GetCriticalOptions(),
