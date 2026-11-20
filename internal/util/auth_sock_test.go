@@ -137,6 +137,35 @@ func TestCheckSocketPathSymlinkChains(t *testing.T) {
 	assert.ErrorContains(t, CheckSocketPath(loop), "too many levels")
 }
 
+func TestCheckSocketPathRelativeNames(t *testing.T) {
+	// The ancestors of the working directory must be checked for relative
+	// names too.
+	open := sharedDir(t, 0o777)
+	sub := filepath.Join(open, "sub")
+	require.NoError(t, os.Mkdir(sub, 0o755)) //nolint:gosec // only the parent's mode matters in this test
+	listenUnix(t, filepath.Join(sub, "agent.sock"))
+	t.Chdir(sub)
+	assert.ErrorContains(t, CheckSocketPath("agent.sock"), "without the sticky bit")
+
+	// os.Getwd returns $PWD when it matches ".", symlinks included. ".."
+	// must still be resolved against the physical directory, as in the
+	// kernel: the lexical parent holds a socket, the physical parent a
+	// regular file.
+	private := t.TempDir()
+	listenUnix(t, filepath.Join(private, "agent.sock"))
+	safe := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(safe, "sub"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(safe, "agent.sock"), nil, 0o600))
+	link := filepath.Join(private, "link")
+	require.NoError(t, os.Symlink(filepath.Join(safe, "sub"), link))
+	t.Setenv("PWD", link)
+	t.Chdir(link)
+	assert.ErrorContains(t, CheckSocketPath("../agent.sock"), "is not a socket",
+		".. after the symlinked working directory resolves physically")
+
+	assert.True(t, os.IsNotExist(CheckSocketPath("")), "empty path keeps IsNotExist")
+}
+
 // Entries owned by another user cannot be created in tests, so fake the
 // owner of selected paths.
 func TestResolveTrustedOtherOwner(t *testing.T) {
@@ -189,6 +218,13 @@ func TestEnsurePrivateDir(t *testing.T) {
 	link := filepath.Join(base, "link")
 	require.NoError(t, os.Symlink(dir, link))
 	assert.ErrorContains(t, EnsurePrivateDir(link), "not a directory")
+	// A trailing slash must not make Lstat follow the link
+	assert.ErrorContains(t, EnsurePrivateDir(link+"/"), "not a directory")
+
+	// The parent must not be a world-writable directory without the sticky
+	// bit; another user could replace the directory.
+	shared := sharedDir(t, 0o777)
+	assert.ErrorContains(t, EnsurePrivateDir(filepath.Join(shared, "private")), "without the sticky bit")
 
 	file := filepath.Join(base, "file")
 	require.NoError(t, os.WriteFile(file, nil, 0o600))

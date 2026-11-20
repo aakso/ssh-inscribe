@@ -69,17 +69,30 @@ const maxSymlinks = 40
 // time, and checks each entry with checkEntry. Errors from lstat are
 // returned unwrapped so that os.IsNotExist works.
 func resolveTrusted(name string, lstat func(string) (os.FileInfo, error)) (string, error) {
+	// Keep the "does not exist" result for an empty path so that callers can
+	// use os.IsNotExist.
+	if name == "" {
+		_, err := lstat(name)
+		return "", err
+	}
 	// Not filepath.Abs: it cleans the path, which drops ".." before the
 	// symlinks in front of it are resolved.
 	cur := "/"
+	rest := splitPath(name)
 	if !filepath.IsAbs(name) {
 		wd, err := os.Getwd()
 		if err != nil {
 			return "", err
 		}
-		cur = wd
+		// Resolve the working directory like any other path. $PWD may
+		// contain symlinks, and its parents must pass the same checks;
+		// otherwise a relative name would describe a different file than
+		// the kernel resolves.
+		cur, err = resolveTrusted(wd, lstat)
+		if err != nil {
+			return "", err
+		}
 	}
-	rest := splitPath(name)
 	links := 0
 	for len(rest) > 0 {
 		comp := rest[0]
@@ -131,19 +144,31 @@ func splitPath(p string) []string {
 // in a sticky world-writable directory an entry, or a directory, owned by
 // someone other than the current user or root.
 func checkEntry(name string, fi, parent os.FileInfo) error {
+	dir := filepath.Dir(name)
+	if err := checkDir(dir, parent); err != nil {
+		return fmt.Errorf("refusing to use %s: %w", name, err)
+	}
 	if parent.Mode().Perm()&0o002 == 0 {
 		return nil
 	}
-	dir := filepath.Dir(name)
-	if parent.Mode()&os.ModeSticky == 0 {
-		return fmt.Errorf("refusing to use %s: %s is world-writable without the sticky bit", name, dir)
-	}
-	// The owner of a sticky directory can still remove any entry in it
-	if uid, err := untrustedOwner(parent); err != nil || uid != "" {
-		return fmt.Errorf("refusing to use %s: world-writable directory %s owned by %s", name, dir, ownerDesc(uid, err))
-	}
 	if uid, err := untrustedOwner(fi); err != nil || uid != "" {
 		return fmt.Errorf("refusing to use %s: owned by %s in a world-writable directory", name, ownerDesc(uid, err))
+	}
+	return nil
+}
+
+// checkDir refuses a directory whose entries another user could replace or
+// remove.
+func checkDir(dir string, fi os.FileInfo) error {
+	if fi.Mode().Perm()&0o002 == 0 {
+		return nil
+	}
+	if fi.Mode()&os.ModeSticky == 0 {
+		return fmt.Errorf("%s is world-writable without the sticky bit", dir)
+	}
+	// The owner of a sticky directory can still remove any entry in it
+	if uid, err := untrustedOwner(fi); err != nil || uid != "" {
+		return fmt.Errorf("world-writable directory %s owned by %s", dir, ownerDesc(uid, err))
 	}
 	return nil
 }
@@ -171,6 +196,19 @@ func ownerDesc(uid string, err error) string {
 // EnsurePrivateDir creates dir accessible only by the current user, or checks
 // that an existing dir is such a directory (not a symlink).
 func EnsurePrivateDir(dir string) error {
+	dir = filepath.Clean(dir)
+	parent, err := resolveTrusted(filepath.Dir(dir), os.Lstat)
+	if err != nil {
+		return err
+	}
+	parentFi, err := os.Stat(parent)
+	if err != nil {
+		return err
+	}
+	if err := checkDir(parent, parentFi); err != nil {
+		return fmt.Errorf("refusing to use %s: %w", dir, err)
+	}
+	dir = filepath.Join(parent, filepath.Base(dir))
 	if err := os.Mkdir(dir, 0o700); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("cannot create %s: %w", dir, err)
 	}
