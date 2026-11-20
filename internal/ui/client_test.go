@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/labstack/echo/v4"
 	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -610,4 +612,43 @@ func TestMarshalPrivateKeyLoadableByOpenSSH(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+func TestTerminalSafeLogger(t *testing.T) {
+	var b bytes.Buffer
+	l := &terminalSafeLogger{l: log.New(&b, "", 0)}
+	l.Debugf("STATUS       : %s", "500 Bad\x1b[2JStatus\r\nnext line\n\tUser-Agent: x")
+
+	out := b.String()
+	assert.NotContains(t, out, "\x1b")
+	assert.NotContains(t, out, "\r")
+	assert.Contains(t, out, `\x1b[2J`)
+	assert.Contains(t, out, "next line")
+	assert.Contains(t, out, "\tUser-Agent: x", "tabs for indentation are kept")
+}
+
+func TestInitRESTInstallsDebugLogger(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	var out bytes.Buffer
+	old := newDebugLogger
+	newDebugLogger = func() resty.Logger { return bufLogger{&out} }
+	t.Cleanup(func() { newDebugLogger = old })
+
+	c := &Client{Config: &Config{URL: srv.URL, Insecure: true, Timeout: 5 * time.Second, Debug: true}}
+	require.NoError(t, c.initREST())
+	_, err := c.newReq().Get(c.urlFor("ca"))
+	require.NoError(t, err)
+	assert.Contains(t, out.String(), "STATUS", "initREST must install the escaping debug logger")
+}
+
+func TestServerMessage(t *testing.T) {
+	res := (&resty.Response{RawResponse: &http.Response{}}).SetBody([]byte("{\"message\":\"no principals\"}\r\n"))
+	assert.Equal(t, `{"message":"no principals"}`, serverMessage(res))
+
+	res = (&resty.Response{RawResponse: &http.Response{}}).SetBody([]byte("bad\x1b[2Jthing\n"))
+	assert.Equal(t, `bad\x1b[2Jthing`, serverMessage(res))
 }

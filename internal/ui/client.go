@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -1116,8 +1117,10 @@ func (c *Client) initREST() error {
 	rest.Header.Set("User-Agent", globals.ClientUserAgent)
 	rest.Header.Set("X-Version", globals.Version().String())
 	if c.Config.Debug {
-		// resty's default logger writes to stderr
+		// resty's default logger writes to stderr; escape everything it
+		// prints, including the server-provided status line.
 		rest.SetDebug(true).
+			SetLogger(newDebugLogger()).
 			OnRequestLog(redactRequestLog).
 			OnResponseLog(redactResponseLog)
 	} else {
@@ -1185,9 +1188,10 @@ func (c *Client) printCertificate(w io.Writer, cert *ssh.Certificate) error {
 	return err
 }
 
-// serverMessage returns the body of an error response for printing.
+// serverMessage returns the body of an error response for printing, without
+// the trailing line ending some handlers add.
 func serverMessage(res *resty.Response) string {
-	return util.TerminalSafe(string(res.Body()))
+	return util.TerminalSafe(strings.TrimRight(string(res.Body()), "\r\n"))
 }
 
 func (c *Client) newReq() *resty.Request {
@@ -1238,6 +1242,42 @@ type discardLogger struct{}
 func (discardLogger) Errorf(string, ...any) {}
 func (discardLogger) Warnf(string, ...any)  {}
 func (discardLogger) Debugf(string, ...any) {}
+
+// terminalSafeLogger escapes the output of resty's debug logger. The response
+// log hook covers headers and body, but resty formats the status line itself
+// from the server-provided reason phrase.
+type terminalSafeLogger struct {
+	l *log.Logger
+}
+
+func newTerminalSafeLogger() *terminalSafeLogger {
+	return &terminalSafeLogger{l: log.New(os.Stderr, "", log.Ldate|log.Lmicroseconds)}
+}
+
+// newDebugLogger is a variable so tests can observe that initREST installs
+// the escaping logger.
+var newDebugLogger = func() resty.Logger { return newTerminalSafeLogger() }
+
+func (l *terminalSafeLogger) Errorf(format string, v ...any) { l.output("ERROR RESTY "+format, v...) }
+func (l *terminalSafeLogger) Warnf(format string, v ...any)  { l.output("WARN RESTY "+format, v...) }
+func (l *terminalSafeLogger) Debugf(format string, v ...any) { l.output("DEBUG RESTY "+format, v...) }
+
+func (l *terminalSafeLogger) output(format string, v ...any) {
+	msg := format
+	if len(v) > 0 {
+		msg = fmt.Sprintf(format, v...)
+	}
+	lines := strings.Split(msg, "\n")
+	for i, line := range lines {
+		// Keep tabs for indentation; a tab cannot send terminal commands.
+		parts := strings.Split(line, "\t")
+		for j, part := range parts {
+			parts[j] = util.TerminalSafe(part)
+		}
+		lines[i] = strings.Join(parts, "\t")
+	}
+	l.l.Print(strings.Join(lines, "\n"))
+}
 
 // urlFor returns a versioned url
 func (c *Client) urlFor(s string) string {
