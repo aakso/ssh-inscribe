@@ -69,6 +69,13 @@ limits or document a reverse proxy setup.
 
 - authldap: any `startTLS` value in `serverURL` enables StartTLS, including
   `false` (a warning is logged).
+- Non-packaged builds: if a temporary-directory cleaner removes
+  `$TMPDIR/ssh-inscribe-<uid>` while the server runs, `ssh-agent` cannot
+  start again until the server restarts. Create the directory when starting
+  the agent.
+- Release workflow: the tag job pipes goreleaser's install script to `bash`,
+  uses an unpinned `golang:` image and runs an unpinned `gem install`; pin
+  them or move the extra tooling out of the write-permission job.
 
 ## Packaging (breaking for custom paths)
 
