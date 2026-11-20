@@ -12,6 +12,7 @@ import (
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/aakso/ssh-inscribe/internal/auth"
@@ -31,7 +32,10 @@ func (sa *SignAPI) HandleAddKey(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "auth context is not valid")
 	}
 	auditID, _ := actx.GetAuthMeta()[auth.MetaAuditID].(string)
-	log := Log.WithField("audit_id", auditID)
+	log := Log.WithField("audit_id", auditID).WithField("subject", actx.GetSubjectName())
+	if err := sa.authorizeCAUpload(actx, log); err != nil {
+		return err
+	}
 
 	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
@@ -74,7 +78,10 @@ func (sa *SignAPI) HandleCaChallenge(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "auth context is not valid")
 	}
 	auditID, _ := actx.GetAuthMeta()[auth.MetaAuditID].(string)
-	log := Log.WithField("audit_id", auditID)
+	log := Log.WithField("audit_id", auditID).WithField("subject", actx.GetSubjectName())
+	if err := sa.authorizeCAUpload(actx, log); err != nil {
+		return err
+	}
 	passphrase, _ := c.Get("password").(string)
 	if passphrase == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "no passphrase given")
@@ -99,6 +106,18 @@ func (sa *SignAPI) HandleCaChallenge(c echo.Context) error {
 	}
 	log.Info("added signing key via challenge")
 	return c.NoContent(http.StatusOK)
+}
+
+func (sa *SignAPI) authorizeCAUpload(actx *auth.AuthContext, log *logrus.Entry) error {
+	principal, ok := sa.isCAAdmin(actx)
+	if !ok {
+		log.Warn("refusing CA key upload: no principal matches caAdminPrincipals")
+		return echo.NewHTTPError(http.StatusForbidden, "not allowed to upload the CA key")
+	}
+	if principal != "" {
+		log.WithField("principal", principal).Info("CA key upload permitted")
+	}
+	return nil
 }
 
 func (sa *SignAPI) HandleGetKey(c echo.Context) error {

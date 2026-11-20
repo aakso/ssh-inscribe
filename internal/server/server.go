@@ -163,6 +163,12 @@ func Build() (*Server, error) {
 
 	// Signing API
 	signapi := signapi.New(authList, signer, []byte(conf.TokenSigningKey), defaultlife, maxlife, caChallengeLife)
+	if err := signapi.RestrictCAUpload(conf.CaAdminPrincipals); err != nil {
+		return nil, fmt.Errorf("invalid caAdminPrincipals: %w", err)
+	}
+	if len(conf.CaAdminPrincipals) == 0 && conf.CertSigningKeyFingerprint == "" {
+		Log.Warn("neither caAdminPrincipals nor certSigningKeyFingerprint is set: any user who can log in may upload the CA key while none is loaded")
+	}
 
 	s := &Server{
 		config:  conf,

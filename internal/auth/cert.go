@@ -57,3 +57,16 @@ func UnsafePrincipal(p string) bool {
 		return r == ',' || unicode.IsControl(r)
 	})
 }
+
+// SplitUnsafePrincipals separates the principals UnsafePrincipal rejects from
+// the others, keeping the order of both.
+func SplitUnsafePrincipals(principals []string) (safe, unsafe []string) {
+	for _, p := range principals {
+		if UnsafePrincipal(p) {
+			unsafe = append(unsafe, p)
+		} else {
+			safe = append(safe, p)
+		}
+	}
+	return safe, unsafe
+}

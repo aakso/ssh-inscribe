@@ -3,12 +3,14 @@
 package authldap
 
 import (
+	"errors"
 	"io"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-ldap/ldap/v3"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/vjeantet/ldapserver"
@@ -67,7 +69,16 @@ func newTestInstance(t *testing.T, mods ...func(*Config)) *AuthLDAP {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The mock directory cannot answer WhoAmI, answer like AD does.
+	inst.whoAmI = func(*ldap.Conn) (string, error) { return `u:TEST\` + TestUser, nil }
 	return inst
+}
+
+func login(inst *AuthLDAP) (*auth.AuthContext, bool) {
+	return inst.Authenticate(nil, &auth.Credentials{
+		UserIdentifier: TestUser,
+		Secret:         []byte(TestPassword),
+	})
 }
 
 func TestAuthenticate(t *testing.T) {
@@ -133,6 +144,65 @@ func TestSearchFilterEscaping(t *testing.T) {
 
 	// Other templates get the raw values
 	assert.Equal("alice)(sAMAccountName=*", inst.RenderTpl(UserBindDN, tplCtx))
+}
+
+func TestUserNamePrincipalAttribute(t *testing.T) {
+	inst := newTestInstance(t, func(c *Config) { c.UserNamePrincipalAttribute = "samaccountname" })
+	actx, ok := login(inst)
+	if assert.True(t, ok) {
+		assert.Contains(t, actx.Principals, TestUserAccountName)
+		assert.NotContains(t, actx.Principals, TestUser, "the typed name must not be used")
+	}
+
+	for _, attr := range []string{"uid", "noSuchAttribute"} {
+		inst := newTestInstance(t, func(c *Config) { c.UserNamePrincipalAttribute = attr })
+		actx, ok := login(inst)
+		assert.False(t, ok, "%s: a multi-valued or missing attribute must refuse the login", attr)
+		assert.Nil(t, actx)
+	}
+
+	inst = newTestInstance(t, func(c *Config) {
+		c.UserNamePrincipal = false
+		c.UserNamePrincipalAttribute = "noSuchAttribute"
+	})
+	actx, ok = login(inst)
+	if assert.True(t, ok, "the attribute is not needed without userNamePrincipal") {
+		assert.NotContains(t, actx.Principals, TestUser)
+	}
+}
+
+// The bind and the user search are configured with separate templates. The
+// login must fail when they find different entries.
+func TestVerifyBoundIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		authzID string
+		err     error
+		ok      bool
+	}{
+		{authzID: "dn:CN=test user,CN=Users,DC=example,DC=com", ok: true},
+		{authzID: `u:TEST\TESTUSER`, ok: true},
+		{authzID: "u:testuser", ok: true},
+		{authzID: "dn:cn=Other User,cn=users,dc=example,dc=com"},
+		{authzID: `u:TEST\mallory`},
+		{authzID: "dn:"},
+		{authzID: ""},
+		{authzID: "x:testuser"},
+		{err: errors.New("unwilling to perform")},
+	} {
+		inst := newTestInstance(t)
+		inst.whoAmI = func(*ldap.Conn) (string, error) { return tc.authzID, tc.err }
+		actx, ok := login(inst)
+		assert.Equal(t, tc.ok, ok, "%q", tc.authzID)
+		assert.Equal(t, tc.ok, actx != nil, "%q", tc.authzID)
+	}
+
+	inst := newTestInstance(t, func(c *Config) { c.VerifyBoundIdentity = false })
+	inst.whoAmI = func(*ldap.Conn) (string, error) {
+		t.Error("WhoAmI must not be called when the check is disabled")
+		return "", nil
+	}
+	_, ok := login(inst)
+	assert.True(t, ok)
 }
 
 // The test directory does not implement StartTLS. Requiring it must fail the
