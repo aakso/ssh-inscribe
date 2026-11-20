@@ -32,10 +32,15 @@ test-ldap:
 
 BIN = $(CURDIR)/.bin
 GOLANGCI_LINT = $(BIN)/golangci-lint-$(GOLANGCI_LINT_VERSION)
+GOVULNCHECK = $(BIN)/govulncheck-$(GOVULNCHECK_VERSION)
 
 $(GOLANGCI_LINT):
 	GOBIN=$(BIN) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	mv $(BIN)/golangci-lint $@
+
+$(GOVULNCHECK):
+	GOBIN=$(BIN) go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	mv $(BIN)/govulncheck $@
 
 # sshi is also built for Windows, lint those files too. govet runs here,
 # including the Windows pass, so there is no separate vet target.
@@ -54,9 +59,10 @@ fmt: $(GOLANGCI_LINT)
 fmt-check: $(GOLANGCI_LINT)
 	$(GOLANGCI_LINT) fmt --diff ./...
 
+# govulncheck, filtering two known database false positives (scripts/vuln.sh).
 .PHONY: vuln
-vuln:
-	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+vuln: $(GOVULNCHECK)
+	scripts/vuln.sh $(GOVULNCHECK)
 
 .PHONY: dist
 dist:
